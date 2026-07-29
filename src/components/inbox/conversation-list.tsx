@@ -159,8 +159,13 @@ export function ConversationList({
     const todayStart = startOfDay(now);
     const yesterdayStart = startOfDay(new Date(now.getTime() - 86400000));
     return conversations.filter((c) => {
-      // Aba de status
-      if (statusTab !== "all" && c.status !== statusTab) return false;
+      // Aba de status. "Todos" = tudo que ainda está em andamento (bot/em
+      // espera/em andamento) — encerrados têm aba própria e não entram aqui.
+      if (statusTab === "all") {
+        if (c.status === "closed") return false;
+      } else if (c.status !== statusTab) {
+        return false;
+      }
       // "Em andamento" = SÓ as minhas (atribuídas a mim), inclusive p/ admin —
       // que em "Todos" vê tudo, mas em "Em andamento" quer só o que ele assumiu.
       if (statusTab === "open" && userId && c.assigned_user_id !== userId) return false;
