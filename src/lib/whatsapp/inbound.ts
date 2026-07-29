@@ -269,7 +269,7 @@ export async function persistInbound(messages: InboundMessage[]) {
     let mediaUrl = msg.mediaUrl ?? null;
     let body = msg.body ?? null;
     if (MEDIA_TYPES.has(msg.contentType)) {
-      const stored = await storeInboundMedia(db, channel as Channel, msg.mediaId ?? msg.externalId).catch(() => ({}) as { url?: string; transcription?: string });
+      const stored = await storeInboundMedia(db, channel as Channel, msg.mediaId ?? msg.externalId, msg.contentType).catch(() => ({}) as { url?: string; transcription?: string });
       if (stored.url) mediaUrl = stored.url;
       if (!body && stored.transcription) body = stored.transcription;
     }
