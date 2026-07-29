@@ -28,15 +28,18 @@ const COLUMNS: { status: ConversationStatus; title: string; dot: string; head: s
 const selectCls =
   "rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-ink outline-none focus:border-brand";
 
-function isToday(iso: string | null): boolean {
+/** "YYYY-MM-DD" de hoje, no fuso local — valor padrão do seletor de data. */
+function todayYmd(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Compara um timestamp ISO (fuso local) contra um "YYYY-MM-DD" escolhido no seletor. */
+function matchesYmd(iso: string | null, ymd: string): boolean {
   if (!iso) return false;
   const d = new Date(iso);
-  const now = new Date();
-  return (
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate()
-  );
+  const target = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return target === ymd;
 }
 
 export function KanbanBoard({
@@ -72,6 +75,10 @@ export function KanbanBoard({
   const [deptId, setDeptId] = useState("");
   const [tagId, setTagId] = useState("");
   const [search, setSearch] = useState("");
+  // Dia usado pela aba "Encerrados" — combinado com o filtro de canal, é como
+  // o atendente confere os atendimentos (e comprovantes de PIX) de um dia
+  // específico num canal específico. Antes só dava pra ver o dia de hoje.
+  const [closedDate, setClosedDate] = useState(todayYmd());
 
   // ---------------------------------------------------------------------
   // Atualização automática do board.
@@ -151,8 +158,8 @@ export function KanbanBoard({
   }, [conversations, channelId, agentId, deptId, tagId, search, tagMap]);
 
   const closedToday = useMemo(
-    () => filtered.filter((c) => c.status === "closed" && isToday(c.closed_at)),
-    [filtered],
+    () => filtered.filter((c) => c.status === "closed" && matchesYmd(c.closed_at, closedDate)),
+    [filtered, closedDate],
   );
 
   // Recorrência: conta quantas conversas cada contato tem (todas, não só filtradas)
@@ -172,7 +179,7 @@ export function KanbanBoard({
           {(
             [
               ["board", "Board"],
-              ["closed", "Encerrados hoje"],
+              ["closed", "Encerrados"],
               ["analytics", "Visão analítica"],
             ] as const
           ).map(([k, label]) => (
@@ -202,6 +209,16 @@ export function KanbanBoard({
               className={cn(selectCls, "w-56 pl-7")}
             />
           </div>
+          {(tab === "closed" || tab === "analytics") && (
+            <input
+              type="date"
+              value={closedDate}
+              max={todayYmd()}
+              onChange={(e) => setClosedDate(e.target.value || todayYmd())}
+              title="Ver os encerrados de um dia específico"
+              className={selectCls}
+            />
+          )}
           <select value={channelId} onChange={(e) => setChannelId(e.target.value)} className={selectCls}>
             <option value="">Todos canais</option>
             {channels.map((c) => (
@@ -444,7 +461,7 @@ function Analytics({
     { label: "Em andamento", value: open, color: "text-green-700" },
     { label: "Em espera", value: queued, color: "text-amber-700" },
     { label: "Na automação", value: bot, color: "text-violet-700" },
-    { label: "Encerrados hoje", value: closedToday.length, color: "text-ink" },
+    { label: "Encerrados", value: closedToday.length, color: "text-ink" },
     { label: "TMA (min)", value: tmaMin, color: "text-brand" },
   ];
 
