@@ -24,6 +24,9 @@ RUN npm run build
 
 FROM node:20-alpine AS runner
 WORKDIR /app
+# ffmpeg: converte áudio webm (gravado no navegador) p/ ogg/opus antes de enviar
+# em canais Meta (a Cloud API não aceita webm). Ver src/lib/whatsapp/audio-transcode.ts
+RUN apk add --no-cache ffmpeg
 # Commit do build, exposto em /api/version para identificar o que está no ar.
 ARG GIT_SHA=""
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0 GIT_SHA=$GIT_SHA

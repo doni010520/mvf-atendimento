@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getSession } from "@/lib/auth";
 import { getProvider } from "@/lib/whatsapp";
+import { toOggOpus } from "@/lib/whatsapp/audio-transcode";
 import { getMessages, getConversations } from "@/lib/data/conversations";
 import { logEvent } from "@/lib/log";
 import type { Channel, ContentType, InternalMention } from "@/lib/types";
@@ -814,6 +815,9 @@ export async function sendMediaMessage(formData: FormData) {
     .single();
   if (!conv) throw new Error("Conversa não encontrada.");
 
+  // Canal buscado ANTES do upload: canais Meta precisam de conversão de áudio.
+  const { data: channel } = await supabase.from("channels").select("*").eq("id", conv.channel_id).single();
+
   const override = String(formData.get("kind") || "");
   const { kind, content } =
     override === "sticker"
@@ -822,12 +826,21 @@ export async function sendMediaMessage(formData: FormData) {
 
   // Upload pro bucket público "media" (service client ignora RLS no storage).
   const svc = createServiceClient();
-  const buf = Buffer.from(await file.arrayBuffer());
-  const ext = (file.name?.split(".").pop() || (file.type.split("/")[1] ?? "bin")).slice(0, 5);
+  let buf = Buffer.from(await file.arrayBuffer());
+  let ext = (file.name?.split(".").pop() || (file.type.split("/")[1] ?? "bin")).slice(0, 5);
+  let contentType = file.type || "application/octet-stream";
+
+  // A Cloud API da Meta NÃO aceita webm (formato que o navegador grava). Converte
+  // pra ogg/opus antes de subir — só nos canais Meta e só quando é áudio webm.
+  if (content === "audio" && (channel as { type?: string })?.type === "meta_cloud" && /webm/i.test(`${contentType} ${ext}`)) {
+    const ogg = await toOggOpus(buf);
+    if (ogg) { buf = ogg; ext = "ogg"; contentType = "audio/ogg"; }
+  }
+
   const path = `${session.organization.id}/out/${conversationId}-${Date.now()}.${ext}`;
   const up = await svc.storage
     .from("media")
-    .upload(path, buf, { contentType: file.type || "application/octet-stream", upsert: true });
+    .upload(path, buf, { contentType, upsert: true });
   if (up.error) throw new Error("Falha ao subir o arquivo.");
   const publicUrl = svc.storage.from("media").getPublicUrl(path).data.publicUrl;
 
@@ -849,7 +862,6 @@ export async function sendMediaMessage(formData: FormData) {
     .single();
 
   try {
-    const { data: channel } = await supabase.from("channels").select("*").eq("id", conv.channel_id).single();
     const to = recipientOf(conv);
     const res = await getProvider(channel as Channel).sendMedia({ to, url: publicUrl, caption, kind });
     await supabase.from("messages").update({ status: "sent", external_id: res.externalId ?? null }).eq("id", msg!.id);
