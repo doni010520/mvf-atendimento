@@ -826,7 +826,7 @@ export async function sendMediaMessage(formData: FormData) {
 
   // Upload pro bucket público "media" (service client ignora RLS no storage).
   const svc = createServiceClient();
-  let buf = Buffer.from(await file.arrayBuffer());
+  let buf: Buffer = Buffer.from(await file.arrayBuffer());
   let ext = (file.name?.split(".").pop() || (file.type.split("/")[1] ?? "bin")).slice(0, 5);
   let contentType = file.type || "application/octet-stream";
 
