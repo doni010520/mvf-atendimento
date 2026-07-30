@@ -68,6 +68,14 @@ export const zRole = z.enum(["admin", "agent"], {
   error: () => "Perfil inválido.",
 });
 
+// "Sem departamento" no <select> manda string vazia — que NÃO é uuid nem null.
+// Tratamos "" (e undefined) como null antes de validar, senão o parse estoura
+// e a tela de editar atendente quebra com erro de Server Component.
+export const zDepartmentId = z.preprocess(
+  (v) => (v === "" || v == null ? null : v),
+  z.string().uuid("Departamento inválido.").nullable(),
+);
+
 export const zChannelType = z.enum(["uazapi", "meta_cloud"], {
   error: () => "Tipo de canal inválido.",
 });
@@ -84,14 +92,17 @@ export const AgentCreateSchema = z.object({
   email: zEmail,
   password: zPassword,
   role: zRole,
-  department_id: z.string().uuid("Departamento inválido.").nullable().optional(),
+  department_id: zDepartmentId,
 });
 
 export const AgentUpdateSchema = z.object({
   name: zName,
   role: zRole,
-  department_id: z.string().uuid("Departamento inválido.").nullable().optional(),
-  status: z.enum(["online", "offline", "busy"]).default("offline"),
+  department_id: zDepartmentId,
+  // Valores reais do sistema (Profile.status): online | away | offline.
+  // Antes estava "busy", que não existe no form nem no tipo — quebrava quem
+  // escolhesse "Ausente".
+  status: z.enum(["online", "away", "offline"]).default("offline"),
 });
 
 export const DepartmentSchema = z.object({
