@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import type { Message } from "@/lib/types";
 import {
   Check, CheckCheck, Clock, AlertCircle, FileText, Download,
-  Reply, SmilePlus, Pencil, Trash2, MoreVertical, X, Forward, MessageSquare,
+  Reply, SmilePlus, Pencil, Trash2, MoreVertical, X, Forward, MessageSquare, ExternalLink,
 } from "lucide-react";
 
 const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
@@ -232,26 +232,43 @@ export function MessageBubble({
       {!out && <Actions {...{ message, menu, setMenu, emoji, setEmoji, onReply, onReact, onEdit, onDelete, onReplyPrivate }} />}
 
       {lightbox && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-4" onClick={() => setLightbox(null)}>
-          <button onClick={() => setLightbox(null)} className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20" title="Fechar">
+        // Overlay ROLÁVEL: comprovantes/prints são altos e estreitos. Em vez de
+        // espremer a imagem inteira na altura da tela (virava uma fita ilegível),
+        // mostramos numa largura confortável e deixamos rolar pra baixo.
+        <div className="fixed inset-0 z-[70] overflow-auto bg-black/80" onClick={() => setLightbox(null)}>
+          <button onClick={() => setLightbox(null)} className="fixed right-4 top-4 z-10 rounded-full bg-white/10 p-2 text-white hover:bg-white/20" title="Fechar">
             <X size={22} />
           </button>
-          <a
-            href={lightbox}
-            download
-            onClick={(e) => e.stopPropagation()}
-            className="absolute bottom-4 right-4 flex items-center gap-1 rounded-lg bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20"
-            title="Baixar"
-          >
-            <Download size={16} /> Baixar
-          </a>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={lightbox}
-            alt=""
-            onClick={(e) => e.stopPropagation()}
-            className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain shadow-2xl"
-          />
+          <div className="fixed bottom-4 right-4 z-10 flex items-center gap-2">
+            <a
+              href={lightbox}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center gap-1 rounded-lg bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20"
+              title="Abrir o arquivo original em outra aba"
+            >
+              <ExternalLink size={16} /> Abrir original
+            </a>
+            <a
+              href={lightbox}
+              download
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center gap-1 rounded-lg bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20"
+              title="Baixar"
+            >
+              <Download size={16} /> Baixar
+            </a>
+          </div>
+          <div className="flex min-h-full items-center justify-center p-4">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={lightbox}
+              alt=""
+              onClick={(e) => e.stopPropagation()}
+              className="h-auto w-auto max-w-[min(92vw,820px)] rounded-lg shadow-2xl"
+            />
+          </div>
         </div>
       )}
     </div>
