@@ -14,6 +14,7 @@ export type CrudField = {
   placeholder?: string;
   required?: boolean;
   inList?: boolean; // exibe no resumo da linha
+  hint?: string; // dica exibida abaixo do campo (ex.: variáveis disponíveis)
 };
 
 type Item = Record<string, any> & { id: string };
@@ -167,6 +168,7 @@ export function CrudManager({
                     <input name={f.name} defaultValue={editing?.[f.name] ?? ""} placeholder={f.placeholder} required={f.required}
                       className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-brand" />
                   )}
+                  {f.hint && <p className="mt-1 text-[11px] text-ink-soft">{f.hint}</p>}
                 </div>
               ))}
               {error && <p className="text-xs text-danger">{error}</p>}

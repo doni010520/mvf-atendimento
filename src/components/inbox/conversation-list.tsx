@@ -159,25 +159,26 @@ export function ConversationList({
     const todayStart = startOfDay(now);
     const yesterdayStart = startOfDay(new Date(now.getTime() - 86400000));
     return conversations.filter((c) => {
-      // Aba de status. "Todos" = tudo que ainda está em andamento (bot/em
-      // espera/em andamento) — encerrados têm aba própria e não entram aqui.
-      if (statusTab === "all") {
-        if (c.status === "closed") return false;
-      } else if (c.status !== statusTab) {
-        return false;
-      }
-      // "Em andamento" = SÓ as minhas (atribuídas a mim), inclusive p/ admin —
-      // que em "Todos" vê tudo, mas em "Em andamento" quer só o que ele assumiu.
-      if (statusTab === "open" && userId && c.assigned_user_id !== userId) return false;
-      // Busca textual
-      if (query) {
-        const q = query.toLowerCase();
-        if (
-          !(c.contact_name ?? "").toLowerCase().includes(q) &&
-          !c.contact_phone.includes(q) &&
-          !(c.channel_name ?? "").toLowerCase().includes(q)
-        )
+      const q = query.trim().toLowerCase();
+      const matchesQuery = !q || (
+        (c.contact_name ?? "").toLowerCase().includes(q) ||
+        c.contact_phone.includes(q) ||
+        (c.channel_name ?? "").toLowerCase().includes(q) ||
+        (c.protocol ?? "").toLowerCase().includes(q) // achar atendimento pelo nº do protocolo
+      );
+      // Com busca ativa, procura em QUALQUER aba/status — inclusive encerrados e
+      // antigos — pra dar pra achar um atendimento pelo protocolo. Sem busca,
+      // aplica o filtro da aba: "Todos" = em andamento (encerrados têm aba própria).
+      if (q) {
+        if (!matchesQuery) return false;
+      } else {
+        if (statusTab === "all") {
+          if (c.status === "closed") return false;
+        } else if (c.status !== statusTab) {
           return false;
+        }
+        // "Em andamento" = SÓ as minhas (atribuídas a mim), inclusive p/ admin.
+        if (statusTab === "open" && userId && c.assigned_user_id !== userId) return false;
       }
       // Período
       if (period === "unread") {
@@ -225,7 +226,7 @@ export function ConversationList({
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Buscar conversa..."
+              placeholder="Buscar por nome, telefone ou protocolo..."
               className="w-full rounded-lg border border-border py-2 pl-9 pr-3 text-sm outline-none focus:border-brand"
             />
           </div>

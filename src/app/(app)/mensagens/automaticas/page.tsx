@@ -29,7 +29,8 @@ export default async function AutomaticasPage() {
       name: "event", label: "Evento", type: "select", required: true, inList: true,
       options: EVENT_OPTIONS,
     },
-    { name: "body", label: "Mensagem", type: "textarea", required: true, placeholder: "Olá! Bem-vindo ao nosso atendimento." },
+    { name: "body", label: "Mensagem", type: "textarea", required: true, placeholder: "Olá! Bem-vindo ao nosso atendimento.",
+      hint: "Variáveis (na Atribuição de atendente): @atendente_nome e @protocolo." },
     {
       name: "channel_id", label: "Canal (vazio = todos)", type: "select",
       options: channels.map((c) => ({ value: c.id, label: c.name })),

@@ -668,14 +668,18 @@ export async function assignToMe(conversationId: string) {
     .eq("id", conversationId);
   void logEvent("info", "atendente", `${session.profile?.name ?? "Atendente"} assumiu o atendimento (IA pausada)`, { conversationId, userId: session.userId, action: "assumir" }, session.organization.id);
 
-  // Mensagem de atribuição (se configurado).
+  // Mensagem de atribuição (se configurado). Variáveis suportadas no texto:
+  // @atendente_nome (nome de quem assumiu) e @protocolo (nº do atendimento).
   const orgSettings = (session.organization.settings ?? {}) as Record<string, unknown>;
   if (orgSettings.auto_send_assign_msg && session.profile?.name) {
     const { data: autoMsg } = await supabase.from("auto_messages")
       .select("body").eq("organization_id", session.organization.id)
       .eq("event", "agent_assign").eq("active", true).limit(1).maybeSingle();
     if (autoMsg?.body) {
-      const text = autoMsg.body.replace(/@atendente_nome/g, session.profile.name);
+      const { data: conv } = await supabase.from("conversations").select("protocol").eq("id", conversationId).maybeSingle();
+      const text = autoMsg.body
+        .replace(/@atendente_nome/g, session.profile.name)
+        .replace(/@protocolo/g, conv?.protocol ?? "");
       await sendMessage(conversationId, text);
     }
   }
