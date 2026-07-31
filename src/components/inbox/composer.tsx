@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Send, Paperclip, Mic, Square, Loader2, MapPin, UserPlus, FileUp, Smile, Sticker, X, Image as ImageIcon, FileText, LayoutTemplate, MessageCircle, Lock } from "lucide-react";
+import { Send, Paperclip, Mic, Loader2, MapPin, UserPlus, FileUp, Smile, Sticker, X, Image as ImageIcon, FileText, LayoutTemplate, MessageCircle, Lock, Trash2 } from "lucide-react";
 import { EmojiPicker } from "./emoji-picker";
 
 type Mention = { name: string; phone: string };
@@ -75,6 +75,7 @@ export function Composer({
   const fileRef = useRef<HTMLInputElement>(null);
   const stickerRef = useRef<HTMLInputElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
+  const cancelRecRef = useRef(false); // true = descartar o áudio no stop (não enviar)
   const chunksRef = useRef<Blob[]>([]);
 
   // Candidatos de menção, normalizados para { name, key }. No modo interno são os
@@ -197,6 +198,8 @@ export function Composer({
 
   async function toggleRecord() {
     if (recording) {
+      // Parar e ENVIAR (botão vermelho de stop).
+      cancelRecRef.current = false;
       recorderRef.current?.stop();
       return;
     }
@@ -204,14 +207,17 @@ export function Composer({
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const rec = new MediaRecorder(stream);
       chunksRef.current = [];
+      cancelRecRef.current = false;
       rec.ondataavailable = (ev) => ev.data.size && chunksRef.current.push(ev.data);
       rec.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
+        setRecording(false);
+        // Cancelado → descarta o áudio e NÃO envia.
+        if (cancelRecRef.current) { cancelRecRef.current = false; chunksRef.current = []; return; }
         const blob = new Blob(chunksRef.current, { type: rec.mimeType || "audio/webm" });
         const ext = (rec.mimeType || "audio/webm").includes("ogg") ? "ogg" : "webm";
         // Áudio gravado envia direto sem preview.
         onSendFile(new File([blob], `audio-${Date.now()}.${ext}`, { type: blob.type }));
-        setRecording(false);
       };
       recorderRef.current = rec;
       rec.start();
@@ -219,6 +225,13 @@ export function Composer({
     } catch {
       alert("Não foi possível acessar o microfone.");
     }
+  }
+
+  /** Cancela a gravação em andamento: para o gravador e DESCARTA (não envia). */
+  function cancelRecord() {
+    if (!recording) return;
+    cancelRecRef.current = true;
+    recorderRef.current?.stop();
   }
 
   const isImage = pendingFile?.type.startsWith("image/");
@@ -553,16 +566,37 @@ export function Composer({
           >
             {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
           </button>
+        ) : recording ? (
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={cancelRecord}
+              disabled={disabled || sending}
+              className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl border border-danger/40 bg-danger/10 text-danger transition hover:bg-danger/20 disabled:opacity-40"
+              title="Cancelar gravação (descartar)"
+            >
+              <Trash2 size={18} />
+            </button>
+            <span className="flex items-center gap-1.5 text-xs font-medium text-danger">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-danger" />
+              Gravando…
+            </span>
+            <button
+              onClick={toggleRecord}
+              disabled={disabled || sending}
+              className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl bg-brand text-white transition hover:bg-brand-dark disabled:opacity-40"
+              title="Parar e enviar"
+            >
+              {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+            </button>
+          </div>
         ) : (
           <button
             onClick={toggleRecord}
             disabled={disabled || sending}
-            className={`flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl text-white transition disabled:opacity-40 ${
-              recording ? "animate-pulse bg-danger hover:bg-red-600" : "bg-brand hover:bg-brand-dark"
-            }`}
-            title={recording ? "Parar e enviar" : "Gravar áudio"}
+            className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl bg-brand text-white transition hover:bg-brand-dark disabled:opacity-40"
+            title="Gravar áudio"
           >
-            {recording ? <Square size={16} /> : <Mic size={18} />}
+            <Mic size={18} />
           </button>
         )}
       </div>
