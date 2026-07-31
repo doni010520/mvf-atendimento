@@ -28,6 +28,7 @@ Produção: **https://mvfchat.benitechlab.com** · versão atual em `GET /api/ve
 - **Cartão de PIX com botão “Copiar código”** — o cliente toca e copia o código copia-e-cola inteiro, sem selecionar texto na mão.
   - **UAZAPI:** botão de cópia via `/send/menu` (`copy:`).
   - **Meta oficial:** cartão **Offsite Pix** (`order_details`) com valor, comerciante e chave.
+- **No MVF Chat** a própria bolha detecta o código PIX (EMV `000201…`) e o exibe como um **cartão “PIX copia e cola” com botão Copiar** — o atendente tem a mesma leitura do cliente, em vez de um código “embolado”. Vale para mensagens novas **e antigas** (é só renderização).
 - O **agente de IA** detecta um código PIX (SGP 2ª via) e já envia nesse formato de cartão automaticamente; se o canal não suportar, cai para texto com o código.
 
 ### Atendimento
