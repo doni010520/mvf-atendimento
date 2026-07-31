@@ -117,13 +117,18 @@ export async function runChatbot(
     // oficial não há botão em msg livre, então cai no texto normal.
     const isPix = text.trim().startsWith("000201") && text.trim().length > 40;
     try {
-      if (isPix && typeof provider.sendPixCopy === "function") {
-        const res = await provider.sendPixCopy({
+      let handled = false;
+      if (isPix && typeof provider.sendPixCard === "function") {
+        // Sem valor aqui (o bot manda só o código) → na uazapi vira botão de
+        // copiar; na Meta oficial (card precisa de valor) volta unsupported e
+        // caímos no texto.
+        const res = await provider.sendPixCard({
           to, text: "Toque no botão para copiar o código PIX 👇",
           buttonLabel: "Copiar código PIX", code: text.trim(),
         });
-        externalId = res.externalId;
-      } else {
+        if (!res.unsupported) { externalId = res.externalId; handled = true; }
+      }
+      if (!handled) {
         const res = await provider.sendText({ to, text });
         externalId = res.externalId;
       }

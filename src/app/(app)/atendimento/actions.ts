@@ -1364,23 +1364,35 @@ export async function sgpSendPix(conversationId: string, contrato: number): Prom
     id && supabase.from("messages").update({ status: ok ? "sent" : "failed", external_id: ext ?? null }).eq("id", id);
 
   let allOk = true;
-  if (typeof provider.sendPixCopy === "function") {
-    // UAZAPI: uma única mensagem com BOTÃO DE COPIAR. No histórico guardamos o
-    // texto + código pra o atendente ver o que foi enviado.
-    const id = await insertOut(`${intro}\n\n${codigoPix}`);
+  let done = false;
+  // Tenta o card/botão interativo (uazapi: botão copiar; Meta: card order_details).
+  if (typeof provider.sendPixCard === "function") {
     try {
-      const res = await provider.sendPixCopy({ to, text: intro, buttonLabel: "Copiar código PIX", code: codigoPix });
-      await mark(id, true, res.externalId);
-    } catch (e) { allOk = false; console.error("sgpSendPix copy", e); await mark(id, false); }
-  } else {
-    // Meta oficial (sem botão de copiar em mensagem livre): intro + código como
-    // texto (o cliente segura a mensagem do código e copia).
+      const res = await provider.sendPixCard({
+        to, text: intro, code: codigoPix, buttonLabel: "Copiar código PIX",
+        amountCents: typeof alvo.valor === "number" ? Math.round(alvo.valor * 100) : undefined,
+        merchantName: "MVF NET", pixKey: "07861662000103", pixKeyType: "CNPJ",
+        refId: String(alvo.fatura), itemName: `Fatura ${alvo.fatura}`,
+      });
+      if (!res.unsupported) {
+        // No histórico guardamos texto + código pra o atendente ver o que foi enviado.
+        await supabase.from("messages").insert({
+          organization_id: orgId, conversation_id: conversationId, direction: "out",
+          sender_type: "agent", sender_id: session.userId, content_type: "text",
+          body: `${intro}\n\n${codigoPix}`, external_id: res.externalId ?? null, status: "sent",
+        });
+        done = true;
+      }
+    } catch (e) { console.error("sgpSendPix card", e); /* cai no texto abaixo */ }
+  }
+  // Fallback texto: intro + código (o cliente segura o código e copia).
+  if (!done) {
     for (const body of [intro, codigoPix]) {
       const id = await insertOut(body);
       try {
         const res = await provider.sendText({ to, text: body });
         await mark(id, true, res?.externalId);
-      } catch (e) { allOk = false; console.error("sgpSendPix", e); await mark(id, false); }
+      } catch (e) { allOk = false; console.error("sgpSendPix text", e); await mark(id, false); }
     }
   }
 

@@ -15,11 +15,19 @@ export interface SendMediaParams {
   replyId?: string;
 }
 
-export interface PixCopyParams {
+export interface PixCardParams {
   to: string;
-  text: string; // texto/instrução acima do botão
-  buttonLabel: string; // rótulo do botão (ex.: "Copiar código PIX")
+  text: string; // texto/instrução (corpo da mensagem)
   code: string; // o PIX copia-e-cola completo
+  buttonLabel?: string; // rótulo do botão de copiar (uazapi). Padrão "Copiar código PIX"
+  // Campos do card OFICIAL da Meta (order_details / offsite pix). Sem o valor,
+  // a Meta cai no fallback de texto.
+  amountCents?: number; // valor em centavos
+  merchantName?: string;
+  pixKey?: string;
+  pixKeyType?: "CPF" | "CNPJ" | "EMAIL" | "PHONE" | "EVP";
+  refId?: string;
+  itemName?: string;
 }
 
 export interface ConnectResult {
@@ -60,12 +68,12 @@ export interface ChannelProvider {
   /** Envia uma mensagem de modelo (template) — Meta oficial, fora da janela de 24h. */
   sendTemplate?(params: { to: string; name: string; language: string; components?: unknown[] }): Promise<{ externalId?: string }>;
   /**
-   * Envia um PIX copia-e-cola com BOTÃO DE COPIAR (cliente toca e copia).
-   * UAZAPI: botão nativo `cta_copy` via /send/menu (aceita o código completo).
-   * Meta oficial: não há botão de copiar em mensagem livre → cai no fallback de
-   * texto (retorna sem enviar; o chamador manda o código como texto).
+   * Envia um PIX com card/botão interativo (cliente toca e copia/paga).
+   * UAZAPI: botão nativo `cta_copy` via /send/menu (código completo).
+   * Meta oficial: card `order_details` (offsite pix) — precisa do valor; sem
+   * ele, retorna { unsupported:true } e o chamador manda como texto.
    */
-  sendPixCopy?(params: PixCopyParams): Promise<{ externalId?: string; unsupported?: boolean }>;
+  sendPixCard?(params: PixCardParams): Promise<{ externalId?: string; unsupported?: boolean }>;
   /** Lista participantes de um grupo (LID + telefone real). Para resolver autor → 1:1. */
   getGroupParticipants?(groupJid: string): Promise<{ lid: string; phone: string }[]>;
   /** Informações do grupo: nome, descrição, participantes. */

@@ -4,6 +4,7 @@ import type {
   ConnectResult,
   SendMediaParams,
   SendTextParams,
+  PixCardParams,
   InboundMessage,
 } from "./types";
 import { transcribeAudio } from "./transcribe";
@@ -120,6 +121,52 @@ export class MetaProvider implements ChannelProvider {
         name,
         language: { code: language || "pt_BR" },
         ...(components && components.length ? { components } : {}),
+      },
+    });
+    return { externalId: r?.messages?.[0]?.id };
+  }
+
+  /**
+   * PIX com card nativo (Offsite Pix / order_details) — o cliente recebe um
+   * card "Código Pix / R$ X / Copiar código pix". Precisa do valor; sem ele,
+   * retorna { unsupported } e o chamador manda como texto.
+   * Testado: aceita o PIX copia-e-cola completo. Não exige onboarding extra.
+   */
+  async sendPixCard(p: PixCardParams): Promise<{ externalId?: string; unsupported?: boolean }> {
+    if (!p.amountCents) return { unsupported: true };
+    const amount = { value: p.amountCents, offset: 100 };
+    const r = await this.graph(`${this.phoneNumberId}/messages`, {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: p.to,
+      type: "interactive",
+      interactive: {
+        type: "order_details",
+        body: { text: p.text },
+        action: {
+          name: "review_and_pay",
+          parameters: {
+            reference_id: p.refId ?? `pix-${Date.now()}`,
+            type: "digital-goods",
+            payment_type: "br",
+            currency: "BRL",
+            total_amount: amount,
+            order: {
+              status: "pending",
+              items: [{ retailer_id: p.refId ?? "1", name: p.itemName ?? "Fatura", amount, quantity: 1 }],
+              subtotal: amount,
+            },
+            payment_settings: [{
+              type: "pix_dynamic_code",
+              pix_dynamic_code: {
+                code: p.code,
+                merchant_name: p.merchantName ?? "MVF NET",
+                key: p.pixKey ?? "07861662000103",
+                key_type: p.pixKeyType ?? "CNPJ",
+              },
+            }],
+          },
+        },
       },
     });
     return { externalId: r?.messages?.[0]?.id };
