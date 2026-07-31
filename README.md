@@ -11,19 +11,40 @@ Canais WhatsApp: **UAZAPI** (não oficial, QR) e **Meta Cloud API** (oficial).
 
 Produção: **https://mvfchat.benitechlab.com** · versão atual em `GET /api/version`.
 
-## Funcionalidades do chat
+## Funcionalidades do chat (WhatsApp)
 
-- **Envio:** texto, imagem/vídeo/documento (com legenda), figurinha, **áudio gravado**, localização e contato.
-- **Sobre mensagens:** responder/citar, reagir (emoji), editar, **apagar (para mim / para todos)** e encaminhar.
+### Envio de mensagens
+- **Tipos:** texto, imagem, vídeo, documento (com legenda), figurinha, **áudio gravado**, localização e contato.
+- **Áudio:** grava pelo microfone no próprio composer. Durante a gravação há **cancelar (descarta sem enviar)** e **enviar** — nunca envia sem confirmar. No canal oficial (Meta), o áudio `webm` do navegador é **convertido para `ogg/opus`** (ffmpeg) antes de sair, já que a Meta não aceita `webm`.
+- **Imagem/mídia recebida:** visualizador (lightbox) com zoom/scroll, **abrir original** em nova aba e **baixar**.
+
+### Sobre as mensagens
+- **Ações:** responder/citar, reagir (emoji), editar, **apagar (para mim / para todos)** e encaminhar.
   - Apagada fica **esmaecida** e visível para a equipe (auditoria); “para todos” revoga no cliente quando o canal suporta (UAZAPI).
 - **Menções:** de contatos em grupos (`@contato`) e de atendentes (`@atendente`).
+- **Tempo real:** mensagens, status (entregue/lido/reação) e menções via Supabase Realtime.
+
+### PIX / mensagens interativas
+- **Cartão de PIX com botão “Copiar código”** — o cliente toca e copia o código copia-e-cola inteiro, sem selecionar texto na mão.
+  - **UAZAPI:** botão de cópia via `/send/menu` (`copy:`).
+  - **Meta oficial:** cartão **Offsite Pix** (`order_details`) com valor, comerciante e chave.
+- O **agente de IA** detecta um código PIX (SGP 2ª via) e já envia nesse formato de cartão automaticamente; se o canal não suportar, cai para texto com o código.
+
+### Atendimento
+- **Ações:** assumir, transferir (departamento), encerrar (com CSAT), silenciar.
+- **Protocolo:** ao **assumir**, gera e registra um **número de protocolo** e dispara a mensagem de boas-vindas para o cliente. Atendimentos podem ser **buscados pelo número de protocolo**.
 - **Mensagens internas entre atendentes** (aba no composer) + **notificações de menção** (sino, tempo real).
 - **Notas internas** na conversa.
 - **Respostas rápidas / macros** e **templates** (Meta, fora da janela de 24h).
-- **Ações de atendimento:** assumir, transferir (departamento), encerrar (com CSAT), silenciar.
-- **IA:** pausar/reativar o agente por conversa; **buffer de rajada** (junta mensagens seguidas); encerra ao **resolver** ou por **inatividade** (com aviso e despedida) e reinicia o fluxo.
+
+### Integração SGP (no painel do contato)
+- **Busca por CPF/CNPJ** varre **todos os SGPs** configurados (multi-SGP) e lista **todos os contratos** do cliente; quando há mais de um, mostra um **seletor de contrato**.
+- Consulta de cliente, faturas, **2ª via / PIX**, liberação em confiança e chamados — tanto pelo atendente quanto como ferramentas do agente de IA.
+
+### IA e automação
+- Pausar/reativar o agente por conversa; **buffer de rajada** (junta mensagens seguidas e responde 1x); encerra ao **resolver** ou por **inatividade** (com aviso e despedida) e reinicia o fluxo.
 - **Grupos:** participantes, “responder no privado”.
-- **Tempo real:** mensagens, status (entregue/lido) e menções via Supabase Realtime; painel de contato (dados, tags, campos personalizados).
+- Painel de contato: dados, tags e campos personalizados.
 
 ## Rodar em desenvolvimento
 
