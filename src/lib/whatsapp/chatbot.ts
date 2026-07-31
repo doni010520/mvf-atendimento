@@ -112,9 +112,21 @@ export async function runChatbot(
     // (mesma semântica do envio humano) — nunca como "sent" enganoso.
     let externalId: string | undefined;
     let ok = true;
+    // PIX copia-e-cola (EMV começa com "000201"): manda com BOTÃO DE COPIAR
+    // quando o provedor suporta (uazapi) — o cliente toca e copia. Na Meta
+    // oficial não há botão em msg livre, então cai no texto normal.
+    const isPix = text.trim().startsWith("000201") && text.trim().length > 40;
     try {
-      const res = await provider.sendText({ to, text });
-      externalId = res.externalId;
+      if (isPix && typeof provider.sendPixCopy === "function") {
+        const res = await provider.sendPixCopy({
+          to, text: "Toque no botão para copiar o código PIX 👇",
+          buttonLabel: "Copiar código PIX", code: text.trim(),
+        });
+        externalId = res.externalId;
+      } else {
+        const res = await provider.sendText({ to, text });
+        externalId = res.externalId;
+      }
     } catch (e) {
       ok = false;
       console.error("chatbot send error", e);

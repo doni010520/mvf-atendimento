@@ -1348,31 +1348,39 @@ export async function sgpSendPix(conversationId: string, contrato: number): Prom
   const venc = fmtVenc(alvo.vencimento);
   const val = typeof alvo.valor === "number" ? `R$ ${alvo.valor.toFixed(2).replace(".", ",")}` : null;
   const ref = [val, venc ? `venc. ${venc}` : null].filter(Boolean).join(" — ");
-  const intro = `Segue o PIX *copia e cola* da sua fatura${ref ? ` (${ref})` : ""}. É só copiar o código abaixo e pagar pelo app do seu banco: 👇`;
+  const intro = `Segue o PIX *copia e cola* da sua fatura${ref ? ` (${ref})` : ""}. É só tocar em *Copiar código PIX* e pagar pelo app do seu banco: 👇`;
+  const provider = getProvider(channel);
+  const orgId = session.organization.id;
+
+  const insertOut = async (body: string, contentType: string = "text") => {
+    const { data } = await supabase.from("messages").insert({
+      organization_id: orgId, conversation_id: conversationId,
+      direction: "out", sender_type: "agent", sender_id: session.userId,
+      content_type: contentType, body, status: "pending",
+    }).select("id").single();
+    return data?.id as string | undefined;
+  };
+  const mark = (id: string | undefined, ok: boolean, ext?: string) =>
+    id && supabase.from("messages").update({ status: ok ? "sent" : "failed", external_id: ext ?? null }).eq("id", id);
 
   let allOk = true;
-  for (const body of [intro, codigoPix]) {
-    const { data: msg } = await supabase
-      .from("messages")
-      .insert({
-        organization_id: session.organization.id,
-        conversation_id: conversationId,
-        direction: "out",
-        sender_type: "agent",
-        sender_id: session.userId,
-        content_type: "text",
-        body,
-        status: "pending",
-      })
-      .select("id")
-      .single();
+  if (typeof provider.sendPixCopy === "function") {
+    // UAZAPI: uma única mensagem com BOTÃO DE COPIAR. No histórico guardamos o
+    // texto + código pra o atendente ver o que foi enviado.
+    const id = await insertOut(`${intro}\n\n${codigoPix}`);
     try {
-      const res = await getProvider(channel).sendText({ to, text: body });
-      await supabase.from("messages").update({ status: "sent", external_id: res?.externalId ?? null }).eq("id", msg!.id);
-    } catch (e) {
-      allOk = false;
-      console.error("sgpSendPix", e);
-      await supabase.from("messages").update({ status: "failed" }).eq("id", msg!.id);
+      const res = await provider.sendPixCopy({ to, text: intro, buttonLabel: "Copiar código PIX", code: codigoPix });
+      await mark(id, true, res.externalId);
+    } catch (e) { allOk = false; console.error("sgpSendPix copy", e); await mark(id, false); }
+  } else {
+    // Meta oficial (sem botão de copiar em mensagem livre): intro + código como
+    // texto (o cliente segura a mensagem do código e copia).
+    for (const body of [intro, codigoPix]) {
+      const id = await insertOut(body);
+      try {
+        const res = await provider.sendText({ to, text: body });
+        await mark(id, true, res?.externalId);
+      } catch (e) { allOk = false; console.error("sgpSendPix", e); await mark(id, false); }
     }
   }
 

@@ -4,6 +4,7 @@ import type {
   ConnectResult,
   SendMediaParams,
   SendTextParams,
+  PixCopyParams,
   InboundMessage,
 } from "./types";
 
@@ -258,6 +259,25 @@ export class UazapiProvider implements ChannelProvider {
     const r = await this.req("/send/location", {
       method: "POST",
       body: JSON.stringify({ number: to, name: loc.name ?? "", address: loc.address ?? "", latitude: loc.latitude, longitude: loc.longitude }),
+    });
+    return { externalId: r?.id ?? r?.messageId ?? r?.messageid };
+  }
+
+  /**
+   * PIX com botão de copiar. POST /send/menu com type=button e um choice
+   * "Label|copy:<código>" → vira um botão nativo cta_copy (o cliente toca e
+   * copia o código). Testado: aceita o PIX copia-e-cola completo (~150 chars).
+   */
+  async sendPixCopy({ to, text, buttonLabel, code }: PixCopyParams): Promise<{ externalId?: string; unsupported?: boolean }> {
+    const r = await this.req("/send/menu", {
+      method: "POST",
+      body: JSON.stringify({
+        number: to,
+        type: "button",
+        text,
+        choices: [`${buttonLabel}|copy:${code}`],
+        readchat: true,
+      }),
     });
     return { externalId: r?.id ?? r?.messageId ?? r?.messageid };
   }

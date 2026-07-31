@@ -15,6 +15,13 @@ export interface SendMediaParams {
   replyId?: string;
 }
 
+export interface PixCopyParams {
+  to: string;
+  text: string; // texto/instrução acima do botão
+  buttonLabel: string; // rótulo do botão (ex.: "Copiar código PIX")
+  code: string; // o PIX copia-e-cola completo
+}
+
 export interface ConnectResult {
   status: Channel["status"];
   qrCode?: string; // base64/data-url quando aplicável (UAZAPI)
@@ -52,6 +59,13 @@ export interface ChannelProvider {
   sendContact?(to: string, contact: { fullName: string; phoneNumber: string }): Promise<{ externalId?: string }>;
   /** Envia uma mensagem de modelo (template) — Meta oficial, fora da janela de 24h. */
   sendTemplate?(params: { to: string; name: string; language: string; components?: unknown[] }): Promise<{ externalId?: string }>;
+  /**
+   * Envia um PIX copia-e-cola com BOTÃO DE COPIAR (cliente toca e copia).
+   * UAZAPI: botão nativo `cta_copy` via /send/menu (aceita o código completo).
+   * Meta oficial: não há botão de copiar em mensagem livre → cai no fallback de
+   * texto (retorna sem enviar; o chamador manda o código como texto).
+   */
+  sendPixCopy?(params: PixCopyParams): Promise<{ externalId?: string; unsupported?: boolean }>;
   /** Lista participantes de um grupo (LID + telefone real). Para resolver autor → 1:1. */
   getGroupParticipants?(groupJid: string): Promise<{ lid: string; phone: string }[]>;
   /** Informações do grupo: nome, descrição, participantes. */
