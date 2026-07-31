@@ -6,6 +6,7 @@ import type { Message } from "@/lib/types";
 import {
   Check, CheckCheck, Clock, AlertCircle, FileText, Download,
   Reply, SmilePlus, Pencil, Trash2, MoreVertical, X, Forward, MessageSquare, ExternalLink,
+  QrCode, Copy,
 } from "lucide-react";
 
 const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
@@ -44,6 +45,55 @@ function fmtWa(text: string): React.ReactNode[] {
   }
   if (last < text.length) out.push(<span key={k++}>{text.slice(last)}</span>);
   return out;
+}
+
+/** Detecta um código PIX copia-e-cola (EMV) dentro do corpo da mensagem.
+ *  O EMV começa em "000201" e é uma sequência longa sem espaços. Devolve o
+ *  código e o texto que veio antes/depois dele. */
+function extractPix(body: string): { code: string; before: string; after: string } | null {
+  const m = body.match(/000201[^\s]{30,}/);
+  if (!m || m[0].length < 40) return null;
+  const code = m[0];
+  const idx = body.indexOf(code);
+  return { code, before: body.slice(0, idx).trim(), after: body.slice(idx + code.length).trim() };
+}
+
+/** Cartão de PIX com botão "Copiar código" — dá ao atendente a mesma leitura
+ *  boa que o cliente tem no WhatsApp, em vez de um código enorme "embolado". */
+function PixCard({ code, out }: { code: string; out: boolean }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(code);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = code; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); } catch { /* ignore */ }
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+  return (
+    <div className={cn("mt-1 rounded-lg border p-2", out ? "border-white/25 bg-white/10" : "border-border bg-black/5")}>
+      <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold">
+        <QrCode size={13} /> PIX copia e cola
+      </div>
+      <p className={cn("mb-2 break-all font-mono text-[11px] leading-snug", out ? "text-white/80" : "text-ink-soft")}>
+        {code.length > 64 ? `${code.slice(0, 64)}…` : code}
+      </p>
+      <button
+        onClick={copy}
+        className={cn(
+          "flex w-full items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition",
+          out ? "bg-white/20 text-white hover:bg-white/30" : "bg-brand text-white hover:bg-brand-dark",
+        )}
+      >
+        {copied ? <><Check size={13} /> Copiado!</> : <><Copy size={13} /> Copiar código PIX</>}
+      </button>
+    </div>
+  );
 }
 
 /** Transforma URLs no texto em links clicáveis (client-only para evitar hydration mismatch). */
@@ -214,7 +264,19 @@ export function MessageBubble({
           ) : (
             message.content_type !== "text" && <p className="mb-1 text-xs opacity-80">[{message.content_type}]</p>
           )}
-          {message.body && <Linkify text={message.body} className="whitespace-pre-wrap break-words" />}
+          {message.body && (() => {
+            const pix = !message.media_url && message.content_type === "text" ? extractPix(message.body) : null;
+            if (pix) {
+              return (
+                <>
+                  {pix.before && <Linkify text={pix.before} className="whitespace-pre-wrap break-words" />}
+                  <PixCard code={pix.code} out={out} />
+                  {pix.after && <Linkify text={pix.after} className="mt-1 whitespace-pre-wrap break-words" />}
+                </>
+              );
+            }
+            return <Linkify text={message.body} className="whitespace-pre-wrap break-words" />;
+          })()}
           <div className={cn("mt-1 flex items-center justify-end gap-1 text-[10px]", out ? "text-white/70" : "text-ink-soft")} suppressHydrationWarning>
             {message.edited && <span className="italic">editada</span>}
             {time}
