@@ -1208,17 +1208,41 @@ export async function searchByProtocol(protocol: string) {
  * dados do cadastro para autopreencher o painel do contato. Usa o contrato com
  * débito (ou o primeiro) para plano/status/endereço.
  */
-export async function sgpLookupByCpf(cpfcnpj: string): Promise<{
-  encontrado: boolean; erro?: string;
-  nome?: string; cpfcnpj?: string; contrato?: string; plano?: string;
-  status_cliente?: string; endereco?: string; email?: string;
-  contratos?: { contrato: number; plano?: string; status?: string }[];
-}> {
-  if (isPreview()) return { encontrado: false, erro: "Modo preview." };
+export interface SgpContrato {
+  contrato: string;
+  plano?: string;
+  status?: string;
+  endereco?: string;
+  valorEmAberto?: number;
+  sgp?: string; // rótulo do SGP/cidade de onde veio (multi-SGP)
+}
+export interface SgpLookupResult {
+  encontrado: boolean;
+  erro?: string;
+  nome?: string;
+  cpfcnpj?: string;
+  email?: string;
+  contratos: SgpContrato[]; // TODOS os contratos, de TODOS os SGPs
+}
+
+/** Rótulo amigável do SGP a partir da URL da config (Nova Canaã vs. principal). */
+function sgpLabelFromUrl(url?: unknown): string {
+  const h = String(url ?? "").toLowerCase();
+  if (h.includes("canaa") || h.includes("canã")) return "Nova Canaã";
+  return "Iguaí/Ibicuí";
+}
+
+/**
+ * Busca o CPF/CNPJ em TODOS os SGPs e devolve TODOS os contratos encontrados
+ * (não para no primeiro SGP nem no primeiro contrato). A UI deixa o atendente
+ * escolher qual contrato usar. Cada contrato carrega o rótulo do SGP de origem.
+ */
+export async function sgpLookupByCpf(cpfcnpj: string): Promise<SgpLookupResult> {
+  if (isPreview()) return { encontrado: false, erro: "Modo preview.", contratos: [] };
   const session = await getSession();
   if (!session?.organization) throw new Error("Sessão inválida.");
   const cpf = String(cpfcnpj || "").replace(/\D+/g, "");
-  if (cpf.length < 11) return { encontrado: false, erro: "Informe um CPF (11) ou CNPJ (14) válido." };
+  if (cpf.length < 11) return { encontrado: false, erro: "Informe um CPF (11) ou CNPJ (14) válido.", contratos: [] };
 
   const supabase = await createClient();
   const { sgpFromConfig } = await import("@/lib/sgp");
@@ -1229,39 +1253,63 @@ export async function sgpLookupByCpf(cpfcnpj: string): Promise<{
     .eq("type", "sgp")
     .eq("active", true);
 
-  const clients = ((integs ?? []) as { config: unknown }[])
-    .map((r) => { try { return sgpFromConfig(r.config); } catch { return null; } })
-    .filter((c): c is NonNullable<typeof c> => !!c);
-  if (!clients.length) return { encontrado: false, erro: "Nenhum SGP configurado." };
+  const sources = ((integs ?? []) as { config: { url?: string } }[])
+    .map((r) => { try { return { client: sgpFromConfig(r.config), label: sgpLabelFromUrl(r.config?.url) }; } catch { return null; } })
+    .filter((s): s is NonNullable<typeof s> => !!s);
+  if (!sources.length) return { encontrado: false, erro: "Nenhum SGP configurado.", contratos: [] };
 
-  for (const sgp of clients) {
-    const c = await sgp.consultarCliente({ cpfcnpj: cpf }).catch(() => null);
-    if (c?.encontrado && c.contratos.length) {
-      const ct = c.contratos.find((x) => (x.valorEmAberto ?? 0) > 0) ?? c.contratos[0];
-      return {
-        encontrado: true,
-        nome: c.nome ?? "",
-        cpfcnpj: c.cpfcnpj ?? cpf,
-        contrato: ct.contrato ? String(ct.contrato) : "",
-        plano: ct.plano ?? "",
-        status_cliente: ct.status ?? "",
-        endereco: ct.endereco ?? "",
-        email: c.emails?.[0] ?? "",
-        contratos: c.contratos.map((x) => ({ contrato: x.contrato, plano: x.plano, status: x.status })),
-      };
+  const contratos: SgpContrato[] = [];
+  let nome: string | undefined;
+  let cpfOut: string | undefined;
+  let email: string | undefined;
+  const seen = new Set<string>();
+
+  for (const { client, label } of sources) {
+    const c = await client.consultarCliente({ cpfcnpj: cpf }).catch(() => null);
+    if (!c?.encontrado || !c.contratos.length) continue;
+    nome = nome ?? c.nome ?? "";
+    cpfOut = cpfOut ?? c.cpfcnpj ?? cpf;
+    email = email || c.emails?.[0] || undefined;
+    for (const x of c.contratos) {
+      const key = `${label}:${x.contrato}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      contratos.push({
+        contrato: x.contrato ? String(x.contrato) : "",
+        plano: x.plano ?? "",
+        status: x.status ?? "",
+        endereco: x.endereco ?? "",
+        valorEmAberto: x.valorEmAberto,
+        sgp: label,
+      });
     }
   }
-  return { encontrado: false, erro: "Cadastro não localizado no SGP." };
+
+  if (!contratos.length) return { encontrado: false, erro: "Cadastro não localizado no SGP.", contratos: [] };
+  // Ordena: contratos com fatura em aberto primeiro (é o que o atendente busca).
+  contratos.sort((a, b) => (b.valorEmAberto ?? 0) - (a.valorEmAberto ?? 0));
+  return { encontrado: true, nome, cpfcnpj: cpfOut ?? cpf, email, contratos };
 }
 
 export async function sgpAction(conversationId: string, action: string, contrato: number): Promise<string> {
   if (isPreview()) return "Modo preview.";
   const session = await getSession();
   if (!session?.organization) throw new Error("Sessão inválida.");
-  const { sgpForOrg } = await import("@/lib/sgp");
+  const { sgpFromConfig } = await import("@/lib/sgp");
   const supabase = await createClient();
-  const sgp = await sgpForOrg(supabase as unknown as Parameters<typeof sgpForOrg>[0], session.organization.id);
-  if (!sgp) return "SGP não configurado. Cadastre a integração em Ajustes > Integrações.";
+  const { data: integs } = await supabase
+    .from("integrations").select("config")
+    .eq("organization_id", session.organization.id).eq("type", "sgp").eq("active", true);
+  const clients = ((integs ?? []) as { config: unknown }[])
+    .map((r) => { try { return sgpFromConfig(r.config); } catch { return null; } })
+    .filter((c): c is NonNullable<typeof c> => !!c);
+  if (!clients.length) return "SGP não configurado. Cadastre a integração em Ajustes > Integrações.";
+  // Acha o SGP que TEM esse contrato (multi-cidade: Iguaí, Nova Canaã, etc.).
+  let sgp = clients[0];
+  for (const cli of clients) {
+    const c = await cli.consultarCliente({ contrato }).catch(() => null);
+    if (c?.encontrado) { sgp = cli; break; }
+  }
   try {
     switch (action) {
       case "segunda_via": {

@@ -18,6 +18,7 @@ import {
   sgpLookupByCpf,
   type ContactDetails,
   type GroupInfoResult,
+  type SgpContrato,
 } from "@/app/(app)/atendimento/actions";
 import type { ConversationOverview } from "@/lib/types";
 
@@ -83,27 +84,45 @@ export function AttendancePanel({
   const [history, setHistory] = useState<AttendanceHistoryItem[]>([]);
   const [sgpLoading, setSgpLoading] = useState(false);
   const [sgpMsg, setSgpMsg] = useState<string | null>(null);
+  const [sgpContratos, setSgpContratos] = useState<SgpContrato[]>([]); // >1 → seletor
+  const [sgpBase, setSgpBase] = useState<{ nome?: string; cpfcnpj?: string; email?: string } | null>(null);
 
-  /** Busca o CPF/CNPJ no SGP e autopreenche o cadastro. */
+  /** Preenche o cadastro a partir de um contrato específico escolhido. */
+  function fillFromContract(ct: SgpContrato, base?: { nome?: string; cpfcnpj?: string; email?: string }) {
+    if (base?.nome) setName(base.nome);
+    setFields((s) => ({
+      ...s,
+      cpfcnpj: base?.cpfcnpj ?? s.cpfcnpj,
+      contrato: ct.contrato || s.contrato,
+      plano: ct.plano ?? s.plano,
+      status_cliente: ct.status ?? s.status_cliente,
+      endereco: ct.endereco ?? s.endereco,
+      email: base?.email || s.email,
+    }));
+    setSgpContratos([]);
+    setSgpBase(null);
+    setSgpMsg(`✓ Contrato ${ct.contrato} selecionado. Confira e clique em Salvar.`);
+  }
+
+  /** Busca o CPF/CNPJ em TODOS os SGPs. 1 contrato → preenche; vários → seletor. */
   async function doSgpLookup() {
     const cpf = (fields.cpfcnpj ?? "").trim();
     if (!cpf) { setSgpMsg("Digite o CPF/CNPJ primeiro."); return; }
-    setSgpLoading(true); setSgpMsg(null);
+    setSgpLoading(true); setSgpMsg(null); setSgpContratos([]);
     try {
       const r = await sgpLookupByCpf(cpf);
       if (!r.encontrado) { setSgpMsg(r.erro ?? "Cadastro não localizado no SGP."); return; }
-      if (r.nome) setName(r.nome);
-      setFields((s) => ({
-        ...s,
-        cpfcnpj: r.cpfcnpj ?? s.cpfcnpj,
-        contrato: r.contrato ?? s.contrato,
-        plano: r.plano ?? s.plano,
-        status_cliente: r.status_cliente ?? s.status_cliente,
-        endereco: r.endereco ?? s.endereco,
-        email: r.email || s.email,
-      }));
-      const n = r.contratos?.length ?? 0;
-      setSgpMsg(`✓ ${r.nome}${n > 1 ? ` — ${n} contratos (preenchi o principal)` : ""}. Confira e clique em Salvar.`);
+      const base = { nome: r.nome, cpfcnpj: r.cpfcnpj, email: r.email };
+      if (r.contratos.length <= 1) {
+        if (r.contratos[0]) fillFromContract(r.contratos[0], base);
+        setSgpMsg(`✓ ${r.nome}. Confira e clique em Salvar.`);
+      } else {
+        if (r.nome) setName(r.nome);
+        setFields((s) => ({ ...s, cpfcnpj: r.cpfcnpj ?? s.cpfcnpj, email: r.email || s.email }));
+        setSgpBase(base);
+        setSgpContratos(r.contratos);
+        setSgpMsg(`✓ ${r.nome} — ${r.contratos.length} contratos. Escolha qual usar:`);
+      }
     } catch (e) {
       setSgpMsg(e instanceof Error ? e.message : "Erro na busca do SGP.");
     } finally {
@@ -289,6 +308,23 @@ export function AttendancePanel({
                           </button>
                         </div>
                         {sgpMsg && <p className="text-[11px] text-ink-soft">{sgpMsg}</p>}
+                        {sgpContratos.length > 1 && (
+                          <div className="space-y-1 rounded-lg border border-border p-1.5">
+                            {sgpContratos.map((c, i) => (
+                              <button
+                                key={`${c.sgp}-${c.contrato}-${i}`}
+                                type="button"
+                                onClick={() => fillFromContract(c, sgpBase ?? undefined)}
+                                className="block w-full rounded-md px-2 py-1.5 text-left text-[11px] hover:bg-gray-100"
+                              >
+                                <span className="font-medium text-ink">Contrato {c.contrato}</span>
+                                {c.plano ? ` · ${c.plano}` : ""}
+                                {(c.valorEmAberto ?? 0) > 0 ? <span className="ml-1 text-danger">• em aberto</span> : ""}
+                                <span className="block text-ink-soft">{[c.endereco, c.sgp].filter(Boolean).join(" — ")}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ) : f.type === "select" ? (
                       <select value={fields[f.key] ?? ""} onChange={(e) => setFields((s) => ({ ...s, [f.key]: e.target.value }))} className={inputCls}>
