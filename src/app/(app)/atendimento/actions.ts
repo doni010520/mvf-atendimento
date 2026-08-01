@@ -1147,6 +1147,34 @@ export async function transferConversation(conversationId: string, opts: Transfe
     await supabase.from("conversations").update(update).eq("id", conversationId);
   }
 
+  // Marcador de transferência VISÍVEL no histórico (interno, não vai ao cliente).
+  // Deixa claro por que a conversa mudou de dono — evita a impressão de
+  // "atribuição errada" para quem abre a conversa depois.
+  {
+    const actor = session.profile?.name ?? "Atendente";
+    let alvo = "";
+    if (opts.toUserId) {
+      const { data: prof } = await supabase.from("profiles").select("name").eq("id", opts.toUserId).maybeSingle();
+      alvo = prof?.name ? `para ${prof.name}` : "para outro atendente";
+    } else if (opts.toDepartmentId) {
+      const { data: dept } = await supabase.from("departments").select("name").eq("id", opts.toDepartmentId).maybeSingle();
+      alvo = dept?.name ? `para a fila do departamento ${dept.name}` : "para a fila do departamento";
+    }
+    if (alvo) {
+      await supabase.from("messages").insert({
+        organization_id: session.organization.id,
+        conversation_id: conversationId,
+        direction: "out",
+        sender_type: "system",
+        sender_id: session.userId,
+        content_type: "text",
+        body: `🔄 ${actor} transferiu este atendimento ${alvo}.`,
+        is_internal: true,
+        status: "sent",
+      });
+    }
+  }
+
   // Nota interna de transferência (não vai ao cliente).
   if (opts.internalNote?.trim()) {
     await supabase.from("messages").insert({
