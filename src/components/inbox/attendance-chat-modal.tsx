@@ -97,10 +97,11 @@ export function AttendanceChatModal({
     return () => clearInterval(t);
   }, [startMs]);
 
-  // Carrega mensagens + polling 3s (mesmo padrão do Inbox).
+  // Carrega mensagens + polling 8s (pausa com a aba oculta — economiza Disk IO).
   useEffect(() => {
     let cancel = false;
     const load = async () => {
+      if (document.hidden) return;
       try {
         const m = await fetchMessages(convId);
         if (!cancel) setMessages(m);
@@ -108,7 +109,7 @@ export function AttendanceChatModal({
     };
     load();
     markConversationRead(convId).catch(() => {});
-    const t = setInterval(load, 3000);
+    const t = setInterval(load, 8000);
     return () => { cancel = true; clearInterval(t); };
   }, [convId]);
 

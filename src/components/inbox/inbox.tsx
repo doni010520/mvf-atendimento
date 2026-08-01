@@ -176,12 +176,16 @@ export function Inbox({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
-  // Polling rápido: lista de conversas a cada 2.5s + status dos canais a cada 15s.
+  // Polling da lista de conversas a cada 10s + status dos canais a cada ~30s.
+  // Realtime já entrega mensagens novas na hora; este polling é backstop para a
+  // ORDENAÇÃO/última msg da lista. Pausa com a aba oculta (o handler de
+  // visibilitychange abaixo atualiza ao voltar o foco) — economiza Disk IO.
   useEffect(() => {
     if (!live) return;
     let cancel = false;
     let channelTick = 0;
     const tick = async () => {
+      if (document.hidden) return;
       try {
         const convs = await fetchConversations();
         if (!cancel && Array.isArray(convs)) {
@@ -189,8 +193,8 @@ export function Inbox({
           maybePing(convs);
         }
       } catch { /* silencioso */ }
-      // Checa canais a cada ~15s (6 ticks × 2.5s)
-      if (channelTick++ % 6 === 0) {
+      // Checa canais a cada ~30s (3 ticks × 10s)
+      if (channelTick++ % 3 === 0) {
         try {
           const chs = await fetchChannelStatuses();
           if (!cancel) setDisconnectedChannels(chs.filter((c) => c.status !== "connected"));
@@ -198,7 +202,7 @@ export function Inbox({
       }
     };
     tick();
-    const t = setInterval(tick, 2500);
+    const t = setInterval(tick, 10000);
     return () => { cancel = true; clearInterval(t); };
   }, [live]);
 
@@ -217,11 +221,13 @@ export function Inbox({
     return () => { document.removeEventListener("visibilitychange", onVisible); window.removeEventListener("focus", onVisible); };
   }, [live, selectedId]);
 
-  // Polling de mensagens da conversa aberta a cada 3s.
+  // Polling de mensagens da conversa aberta a cada 8s (backstop do realtime,
+  // pega status entregue/lido, edições e apagadas). Pausa com a aba oculta.
   useEffect(() => {
     if (!live || !selectedId) return;
     let cancel = false;
     const tick = async () => {
+      if (document.hidden) return;
       try {
         const msgs = await fetchMessages(selectedId);
         if (!cancel) {
@@ -238,7 +244,7 @@ export function Inbox({
       }
     };
     tick();
-    const t = setInterval(tick, 3000);
+    const t = setInterval(tick, 8000);
     return () => { cancel = true; clearInterval(t); };
   }, [live, selectedId]);
 
