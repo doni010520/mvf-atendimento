@@ -278,6 +278,7 @@ export async function sendMessage(
   text: string,
   replyToExternal?: string,
   mentions?: { name: string; phone: string }[],
+  autoClaim = true,
 ): Promise<{ ok: boolean; error?: string }> {
   let body = text.trim();
   if (!body) return { ok: false };
@@ -295,7 +296,7 @@ export async function sendMessage(
 
   const { data: conv } = await supabase
     .from("conversation_overview")
-    .select("contact_phone, channel_id, status, is_group, contact_jid")
+    .select("contact_phone, channel_id, status, is_group, contact_jid, assigned_user_id")
     .eq("id", conversationId)
     .single();
   if (!conv) throw new Error("Conversa não encontrada.");
@@ -378,13 +379,19 @@ export async function sendMessage(
   // Se o atendente respondeu numa conversa que estava na IA, a IA para
   // automaticamente (equivalente ao "atendente assumiu ao interagir").
   const wasBot = conv.status === "bot";
+  // Quem responde ASSUME a conversa se ela ainda não tem dono. Sem isso, uma
+  // conversa aberta/na fila (ex.: passou pela IA ou por transferência) em que o
+  // atendente responde continuava SEM atribuição — e ficava visível para todos
+  // os outros atendentes. Agora, ao responder, vira dele (some da lista alheia).
+  const claim = autoClaim && !conv.assigned_user_id;
   await supabase
     .from("conversations")
     .update({
       last_message_at: new Date().toISOString(),
       inactivity_warned_at: null,
       status: conv.status === "closed" ? "open" : wasBot ? "open" : conv.status,
-      ...(wasBot ? { ai_enabled: false, assigned_user_id: session.userId } : {}),
+      ...(wasBot ? { ai_enabled: false } : {}),
+      ...(claim ? { assigned_user_id: session.userId } : {}),
     })
     .eq("id", conversationId);
   if (wasBot) {
@@ -814,7 +821,7 @@ export async function sendMediaMessage(formData: FormData) {
   const supabase = await createClient();
   const { data: conv } = await supabase
     .from("conversation_overview")
-    .select("contact_phone, channel_id, status, is_group, contact_jid")
+    .select("contact_phone, channel_id, status, is_group, contact_jid, assigned_user_id")
     .eq("id", conversationId)
     .single();
   if (!conv) throw new Error("Conversa não encontrada.");
@@ -876,7 +883,12 @@ export async function sendMediaMessage(formData: FormData) {
 
   await supabase
     .from("conversations")
-    .update({ last_message_at: new Date().toISOString(), status: conv.status === "closed" ? "open" : conv.status })
+    .update({
+      last_message_at: new Date().toISOString(),
+      status: conv.status === "closed" ? "open" : conv.status,
+      // Quem responde (com mídia) também ASSUME a conversa se ela não tem dono.
+      ...(!conv.assigned_user_id ? { assigned_user_id: session.userId } : {}),
+    })
     .eq("id", conversationId);
   revalidatePath("/atendimento");
   return { ok: true };
@@ -1192,7 +1204,9 @@ export async function transferConversation(conversationId: string, opts: Transfe
 
   // Mensagem ao cliente (enviada pelo provedor).
   if (opts.customerMessage?.trim()) {
-    await sendMessage(conversationId, opts.customerMessage.trim());
+    // autoClaim=false: numa transferência (ex.: para a fila) não deixar que o
+    // envio da mensagem ao cliente re-atribua a conversa a quem transferiu.
+    await sendMessage(conversationId, opts.customerMessage.trim(), undefined, undefined, false);
   }
 
   void logEvent("info", "atendente", `${session.profile?.name ?? "Atendente"} transferiu o atendimento`, { conversationId, userId: session.userId, action: "transferir", toUserId: opts.toUserId ?? null, toDepartmentId: opts.toDepartmentId ?? null }, session.organization.id);
