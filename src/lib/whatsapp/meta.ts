@@ -94,11 +94,16 @@ export class MetaProvider implements ChannelProvider {
   }
 
   async sendMedia({ to, url, caption, kind }: SendMediaParams) {
+    // Só imagem/vídeo/documento aceitam `caption` na Cloud API. Áudio e sticker
+    // NÃO — mandar caption (mesmo string vazia) faz a Meta rejeitar o envio.
+    const supportsCaption = kind === "image" || kind === "video" || kind === "document";
+    const media: Record<string, unknown> = { link: url };
+    if (supportsCaption && caption) media.caption = caption;
     const r = await this.graph(`${this.phoneNumberId}/messages`, {
       messaging_product: "whatsapp",
       to,
       type: kind,
-      [kind]: { link: url, caption },
+      [kind]: media,
     });
     return { externalId: r?.messages?.[0]?.id };
   }
