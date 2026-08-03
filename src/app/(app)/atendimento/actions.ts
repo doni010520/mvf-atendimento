@@ -850,8 +850,12 @@ export async function sendMediaMessage(formData: FormData) {
       // ("Param file must be a file with a valid mime type"), então mandar o
       // original era garantia de o cliente não receber nada. Um ogg curto/baixo
       // pelo menos chega. Só registramos quando vier suspeito de silêncio.
+      // Com -vbr off, um áudio real nunca fica abaixo de ~2KB. Se ficou, é
+      // gravação sem som: não adianta enviar (o WhatsApp do cliente mostra
+      // "áudio não está mais disponível"). Barra com mensagem clara.
       if (ogg.length < 2000) {
-        void logEvent("warn", "atendente", `áudio muito pequeno (${ogg.length}B de ${buf.length}B) — provável gravação sem som`, { conversationId, bytesIn: buf.length, bytesOut: ogg.length }, session.organization.id);
+        void logEvent("warn", "atendente", `áudio sem som barrado (${ogg.length}B de ${buf.length}B de entrada)`, { conversationId, bytesIn: buf.length, bytesOut: ogg.length }, session.organization.id);
+        return { ok: false, error: "A gravação ficou sem som (microfone não captou áudio). Verifique o microfone e grave novamente." };
       }
       buf = ogg; ext = "ogg"; contentType = "audio/ogg";
     } else {

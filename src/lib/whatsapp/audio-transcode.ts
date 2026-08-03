@@ -23,7 +23,15 @@ export async function toOggOpus(input: Buffer): Promise<Buffer | null> {
     await new Promise<void>((resolve, reject) => {
       const ff = spawn(
         "ffmpeg",
-        ["-y", "-i", inPath, "-c:a", "libopus", "-b:a", "32k", "-ar", "48000", "-ac", "1", "-f", "ogg", outPath],
+        [
+          "-y", "-i", inPath,
+          "-c:a", "libopus", "-b:a", "32k",
+          // vbr off = taxa constante: mesmo trecho silencioso gera um stream
+          // "cheio". Sem isso, gravação sem som virava um arquivo degenerado de
+          // ~1KB que o WhatsApp recusava com "áudio não está mais disponível".
+          "-vbr", "off", "-application", "voip",
+          "-ar", "48000", "-ac", "1", "-f", "ogg", outPath,
+        ],
         { stdio: ["ignore", "ignore", "pipe"] },
       );
       let err = "";

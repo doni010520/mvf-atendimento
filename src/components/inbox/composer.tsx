@@ -288,12 +288,19 @@ export function Composer({
           alert("A gravação ficou muito curta. Segure um pouco mais e tente de novo.");
           return;
         }
+        // Microfone não captou nada: NÃO envia. Um áudio mudo vira um arquivo
+        // degenerado (~1KB) que o WhatsApp do cliente recusa a tocar,
+        // mostrando "este áudio não está mais disponível".
         if (peak < 3) {
-          const ok = confirm(
-            "Não detectamos som no seu microfone durante a gravação — o áudio pode estar mudo.\n\n" +
-              "Verifique se o microfone certo está selecionado e se não está no mudo.\n\nEnviar mesmo assim?",
+          alert(
+            "Seu microfone não captou nenhum som nesta gravação, então o áudio não foi enviado.\n\n" +
+              "O que verificar:\n" +
+              "• Se o microfone certo está selecionado (ícone 🔒 na barra de endereço → Microfone);\n" +
+              "• Se o microfone não está no mudo (tecla/botão do headset);\n" +
+              "• Se o Windows está com o dispositivo de entrada correto.\n\n" +
+              "Dica: durante a gravação, as barrinhas ao lado do tempo devem se mexer quando você fala.",
           );
-          if (!ok) return;
+          return;
         }
         const ext = (rec.mimeType || mimeType || "audio/webm").includes("ogg") ? "ogg" : "webm";
         // Áudio gravado envia direto sem preview.
