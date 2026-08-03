@@ -106,7 +106,13 @@ export function ChatThread({
     }
     return null;
   })();
-  const windowOpen = !isMeta || (!!lastInboundAt && Date.now() - new Date(lastInboundAt).getTime() < 24 * 3600 * 1000);
+  // Enquanto as mensagens ainda não carregaram (lista vazia ao abrir a conversa),
+  // NÃO assumir janela fechada — senão a barra de templates "pisca" (aparece e
+  // some) até o fetch terminar. Só decidimos "fechada" com mensagens carregadas.
+  const windowOpen =
+    !isMeta ||
+    messages.length === 0 ||
+    (!!lastInboundAt && Date.now() - new Date(lastInboundAt).getTime() < 24 * 3600 * 1000);
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col bg-canvas">
