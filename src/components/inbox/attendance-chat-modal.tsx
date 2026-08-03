@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { X, UserCheck, ArrowRightLeft, CheckCircle2, Hash, Clock, PanelRight, RotateCcw } from "lucide-react";
 import { ChatThread } from "./chat-thread";
 import { AttendancePanel } from "./attendance-panel";
@@ -113,12 +113,21 @@ export function AttendanceChatModal({
     return () => { cancel = true; clearInterval(t); };
   }, [convId]);
 
-  // Fecha no ESC.
+  // Fecha no ESC — mas NÃO quando há um sub-modal aberto (encerrar/transferir/
+  // nota/editar/apagar): antes o ESC dentro deles fechava o atendimento inteiro
+  // e o atendente perdia o que tinha digitado.
+  const subModalOpen = closing || transferring || noting || !!editing || !!deleteTarget;
   useEffect(() => {
+    if (subModalOpen) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, subModalOpen]);
+
+  // Fechar clicando no fundo só vale quando o clique COMEÇOU e TERMINOU no
+  // fundo. Sem isso, selecionar texto e soltar o mouse fora, ou clicar num
+  // elemento que some (menu/tooltip), fechava o atendimento sem querer.
+  const backdropDownRef = useRef(false);
 
   const refetch = async () => {
     try { setMessages(await fetchMessages(convId)); } catch { /* silencioso */ }
@@ -295,7 +304,11 @@ export function AttendanceChatModal({
   return (
     <div
       className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-0 sm:p-4"
-      onClick={onClose}
+      onMouseDown={(e) => { backdropDownRef.current = e.target === e.currentTarget; }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && backdropDownRef.current) onClose();
+        backdropDownRef.current = false;
+      }}
     >
       <div
         onClick={(e) => e.stopPropagation()}

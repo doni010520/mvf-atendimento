@@ -135,24 +135,31 @@ export function AttendancePanel({
     setLoading(true);
     setSaved(false);
     (async () => {
-      if (isGroup) {
-        const g = await getGroupInfo(conversation.id);
-        if (!cancel) setGroup(g);
-      } else {
-        const [c, h] = await Promise.all([
-          getContactDetails(conversation.id),
-          getContactHistory(conversation.id),
-        ]);
-        if (!cancel && c) {
-          setContact(c);
-          setName(c.name ?? "");
-          setNotes(c.notes ?? "");
-          const cf = (c.custom_fields ?? {}) as Record<string, unknown>;
-          setFields(Object.fromEntries(CRM_FIELDS.map((f) => [f.key, String(cf[f.key] ?? "")])));
+      try {
+        if (isGroup) {
+          const g = await getGroupInfo(conversation.id);
+          if (!cancel) setGroup(g);
+        } else {
+          const [c, h] = await Promise.all([
+            getContactDetails(conversation.id),
+            getContactHistory(conversation.id),
+          ]);
+          if (!cancel && c) {
+            setContact(c);
+            setName(c.name ?? "");
+            setNotes(c.notes ?? "");
+            const cf = (c.custom_fields ?? {}) as Record<string, unknown>;
+            setFields(Object.fromEntries(CRM_FIELDS.map((f) => [f.key, String(cf[f.key] ?? "")])));
+          }
+          if (!cancel) setHistory(h ?? []);
         }
-        if (!cancel) setHistory(h ?? []);
+      } catch (e) {
+        // Sem este catch, qualquer falha de rede/sessão deixava o painel preso
+        // em "Carregando..." para sempre (setLoading(false) nunca rodava).
+        console.error("[attendance-panel] carregar dados do contato", e);
+      } finally {
+        if (!cancel) setLoading(false);
       }
-      if (!cancel) setLoading(false);
     })();
     return () => { cancel = true; };
   }, [conversation.id, isGroup]);

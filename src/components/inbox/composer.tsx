@@ -85,6 +85,25 @@ export function Composer({
   const recorderRef = useRef<MediaRecorder | null>(null);
   const cancelRecRef = useRef(false); // true = descartar o áudio no stop (não enviar)
   const chunksRef = useRef<Blob[]>([]);
+  // Cronômetro + medidor de nível do microfone durante a gravação. O medidor
+  // existe porque já tivemos áudio saindo praticamente vazio: se o microfone
+  // não está captando, o atendente vê na hora em vez de mandar um áudio mudo.
+  const [recSecs, setRecSecs] = useState(0);
+  const [recLevel, setRecLevel] = useState(0); // 0..100
+  const recStartRef = useRef(0);
+  const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recRafRef = useRef<number | null>(null);
+  const recCtxRef = useRef<AudioContext | null>(null);
+  const recPeakRef = useRef(0);
+
+  /** Encerra cronômetro/medidor e libera o AudioContext. */
+  function stopMeter() {
+    if (recTimerRef.current) { clearInterval(recTimerRef.current); recTimerRef.current = null; }
+    if (recRafRef.current) { cancelAnimationFrame(recRafRef.current); recRafRef.current = null; }
+    recCtxRef.current?.close().catch(() => {});
+    recCtxRef.current = null;
+    setRecLevel(0);
+  }
 
   // Candidatos de menção, normalizados para { name, key }. No modo interno são os
   // atendentes (key = id); no modo cliente são contatos do grupo (key = telefone).
@@ -216,24 +235,65 @@ export function Composer({
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const rec = new MediaRecorder(stream);
+      // Formato explícito: deixar no padrão fazia o Chrome variar o container.
+      const preferred = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"];
+      const mimeType = preferred.find((m) => MediaRecorder.isTypeSupported?.(m));
+      const rec = new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 64000 } : undefined);
       chunksRef.current = [];
       cancelRecRef.current = false;
+      recPeakRef.current = 0;
+
+      // Medidor de nível: mostra que o microfone está mesmo captando som.
+      try {
+        const Ctx: typeof AudioContext =
+          window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        const ctx = new Ctx();
+        recCtxRef.current = ctx;
+        const src = ctx.createMediaStreamSource(stream);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 512;
+        src.connect(analyser);
+        const buf = new Uint8Array(analyser.frequencyBinCount);
+        const tick = () => {
+          analyser.getByteTimeDomainData(buf);
+          let peak = 0;
+          for (let i = 0; i < buf.length; i++) peak = Math.max(peak, Math.abs(buf[i] - 128));
+          const lvl = Math.min(100, Math.round((peak / 128) * 100 * 2.5));
+          recPeakRef.current = Math.max(recPeakRef.current, lvl);
+          setRecLevel(lvl);
+          recRafRef.current = requestAnimationFrame(tick);
+        };
+        recRafRef.current = requestAnimationFrame(tick);
+      } catch { /* medidor é opcional */ }
+
       rec.ondataavailable = (ev) => ev.data.size && chunksRef.current.push(ev.data);
       rec.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
+        const secs = (Date.now() - recStartRef.current) / 1000;
+        const peak = recPeakRef.current;
+        stopMeter();
         setRecording(false);
+        setRecSecs(0);
         // Cancelado → descarta o áudio e NÃO envia.
         if (cancelRecRef.current) { cancelRecRef.current = false; chunksRef.current = []; return; }
-        const blob = new Blob(chunksRef.current, { type: rec.mimeType || "audio/webm" });
+        const blob = new Blob(chunksRef.current, { type: rec.mimeType || mimeType || "audio/webm" });
         chunksRef.current = [];
-        // Guarda: blob minúsculo = gravação truncada/sem áudio. Não envia (o
-        // cliente receberia uma mídia quebrada, impossível de tocar).
-        if (blob.size < 2000) {
-          alert("A gravação ficou muito curta ou falhou. Tente novamente, segurando um pouco mais.");
+        // Só bloqueia o que é realmente inutilizável: gravação instantânea ou
+        // sem nenhum dado. Se gravou tempo suficiente, ENVIA — mas avisa quando
+        // o microfone não captou nada (áudio mudo), que era o caso dos arquivos
+        // de ~1KB que o WhatsApp não conseguia tocar.
+        if (secs < 0.8 || blob.size < 600) {
+          alert("A gravação ficou muito curta. Segure um pouco mais e tente de novo.");
           return;
         }
-        const ext = (rec.mimeType || "audio/webm").includes("ogg") ? "ogg" : "webm";
+        if (peak < 3) {
+          const ok = confirm(
+            "Não detectamos som no seu microfone durante a gravação — o áudio pode estar mudo.\n\n" +
+              "Verifique se o microfone certo está selecionado e se não está no mudo.\n\nEnviar mesmo assim?",
+          );
+          if (!ok) return;
+        }
+        const ext = (rec.mimeType || mimeType || "audio/webm").includes("ogg") ? "ogg" : "webm";
         // Áudio gravado envia direto sem preview.
         onSendFile(new File([blob], `audio-${Date.now()}.${ext}`, { type: blob.type }));
       };
@@ -241,10 +301,21 @@ export function Composer({
       // timeslice de 250ms: o recorder entrega os dados em pedaços durante a
       // gravação, em vez de só no fim — evita blob truncado/vazio.
       rec.start(250);
+      recStartRef.current = Date.now();
+      setRecSecs(0);
+      recTimerRef.current = setInterval(
+        () => setRecSecs(Math.floor((Date.now() - recStartRef.current) / 1000)),
+        250,
+      );
       setRecording(true);
     } catch {
       alert("Não foi possível acessar o microfone.");
     }
+  }
+
+  /** mm:ss do cronômetro de gravação. */
+  function fmtRec(s: number) {
+    return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
   }
 
   /** Cancela a gravação em andamento: para o gravador e DESCARTA (não envia). */
@@ -253,6 +324,19 @@ export function Composer({
     cancelRecRef.current = true;
     recorderRef.current?.stop();
   }
+
+  // Se o componente sair da tela gravando (trocar de conversa, fechar modal),
+  // encerra tudo: sem isso o microfone continua aberto e o timer vazando.
+  useEffect(() => {
+    return () => {
+      if (recorderRef.current?.state === "recording") {
+        cancelRecRef.current = true;
+        try { recorderRef.current.stop(); } catch { /* ignore */ }
+      }
+      stopMeter();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const isImage = pendingFile?.type.startsWith("image/");
   const isVideo = pendingFile?.type.startsWith("video/");
@@ -596,9 +680,20 @@ export function Composer({
             >
               <Trash2 size={18} />
             </button>
-            <span className="flex items-center gap-1.5 text-xs font-medium text-danger">
+            <span className="flex items-center gap-1.5 text-xs font-medium text-danger" title="Tempo gravado e nível do microfone">
               <span className="h-2 w-2 animate-pulse rounded-full bg-danger" />
-              Gravando…
+              <span className="tnum tabular-nums">{fmtRec(recSecs)}</span>
+              {/* Medidor: se ficar sempre vazio, o microfone não está captando. */}
+              <span className="ml-0.5 flex h-3 w-14 items-center gap-[2px]" aria-label="nível do microfone">
+                {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+                  <span
+                    key={i}
+                    className={`h-full w-[6px] rounded-sm transition-colors ${
+                      recLevel > (i + 1) * 12 ? "bg-danger" : "bg-danger/20"
+                    }`}
+                  />
+                ))}
+              </span>
             </span>
             <button
               onClick={toggleRecord}
