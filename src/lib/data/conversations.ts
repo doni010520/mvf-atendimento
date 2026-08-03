@@ -30,10 +30,15 @@ export async function getConversations(): Promise<ConversationOverview[]> {
     if (owner && owner !== userId) hidden.add(c.id);
   }
 
+  // Traz só as conversas mais RECENTES (por atividade). Puxar todas (centenas,
+  // com encerradas antigas) a cada poll de cada atendente sobrecarrega o banco
+  // (a view calcula última msg + não-lidas por linha). As ativas ficam sempre
+  // no topo; encerradas antigas continuam acháveis por protocolo/data.
   const { data } = await supabase
     .from("conversation_overview")
     .select("*")
-    .order("last_message_at", { ascending: false, nullsFirst: false });
+    .order("last_message_at", { ascending: false, nullsFirst: false })
+    .limit(500);
   let rows = (data as ConversationOverview[]) ?? [];
   // Grupos não fazem parte do atendimento: novas mensagens de grupo já são
   // descartadas no webhook (inbound.ts); aqui escondemos as que ficaram do
