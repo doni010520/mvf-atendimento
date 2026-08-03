@@ -602,7 +602,10 @@ export function Inbox({
     if (caption) fd.set("caption", caption);
     if (asSticker) fd.set("kind", "sticker");
     startTransition(async () => {
-      await sendMediaMessage(fd);
+      const res = await sendMediaMessage(fd);
+      // Falha ao preparar/enviar (ex.: conversão de áudio) precisa aparecer —
+      // antes o erro era silencioso e o atendente achava que tinha enviado.
+      if (res && res.ok === false && "error" in res && res.error) alert(res.error);
       const msgs = await fetchMessages(convId);
       setMessagesByConv((prev) => ({ ...prev, [convId]: msgs }));
       setConversations((prev) => {

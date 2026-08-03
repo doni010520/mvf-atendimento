@@ -845,13 +845,19 @@ export async function sendMediaMessage(formData: FormData) {
   // pra ogg/opus antes de subir — só nos canais Meta e só quando é áudio webm.
   if (content === "audio" && (channel as { type?: string })?.type === "meta_cloud" && /webm/i.test(`${contentType} ${ext}`)) {
     const ogg = await toOggOpus(buf);
-    // Guarda: ogg minúsculo = entrada truncada (o ffmpeg "converte" só o
-    // cabeçalho e o resultado não toca no WhatsApp — dava "áudio não está mais
-    // disponível" no cliente). Nesse caso registra e mantém o original.
-    if (ogg && ogg.length >= 2000) {
+    if (ogg) {
+      // SEMPRE usa o ogg convertido, mesmo pequeno. A Meta REJEITA webm
+      // ("Param file must be a file with a valid mime type"), então mandar o
+      // original era garantia de o cliente não receber nada. Um ogg curto/baixo
+      // pelo menos chega. Só registramos quando vier suspeito de silêncio.
+      if (ogg.length < 2000) {
+        void logEvent("warn", "atendente", `áudio muito pequeno (${ogg.length}B de ${buf.length}B) — provável gravação sem som`, { conversationId, bytesIn: buf.length, bytesOut: ogg.length }, session.organization.id);
+      }
       buf = ogg; ext = "ogg"; contentType = "audio/ogg";
-    } else if (ogg) {
-      void logEvent("warn", "atendente", `áudio convertido ficou truncado (${ogg.length}B de ${buf.length}B de entrada) — enviando original`, { conversationId, bytesIn: buf.length, bytesOut: ogg.length }, session.organization.id);
+    } else {
+      // ffmpeg falhou: mandar webm para a Meta não funciona. Falha explícita.
+      void logEvent("error", "atendente", "conversão de áudio falhou (ffmpeg) — envio cancelado", { conversationId, bytesIn: buf.length }, session.organization.id);
+      return { ok: false, error: "Não foi possível preparar o áudio para envio. Tente gravar novamente." };
     }
   }
 

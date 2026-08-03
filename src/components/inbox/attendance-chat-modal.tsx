@@ -172,7 +172,8 @@ export function AttendanceChatModal({
     if (caption) fd.set("caption", caption);
     if (asSticker) fd.set("kind", "sticker");
     startTransition(async () => {
-      await sendMediaMessage(fd);
+      const res = await sendMediaMessage(fd);
+      if (res && res.ok === false && "error" in res && res.error) alert(res.error);
       await refetch();
     });
   }
