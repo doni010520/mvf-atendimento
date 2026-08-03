@@ -30,15 +30,19 @@ export async function getConversations(): Promise<ConversationOverview[]> {
     if (owner && owner !== userId) hidden.add(c.id);
   }
 
-  // Traz só as conversas mais RECENTES (por atividade). Puxar todas (centenas,
-  // com encerradas antigas) a cada poll de cada atendente sobrecarrega o banco
-  // (a view calcula última msg + não-lidas por linha). As ativas ficam sempre
-  // no topo; encerradas antigas continuam acháveis por protocolo/data.
-  const { data } = await supabase
+  // Filtro de visibilidade aplicado JÁ NO SQL (antes do limite): atendente
+  // não-admin só vê as SEM dono (fila/bot) + as dele. Isso é importante para o
+  // teto não cortar as conversas ANTIGAS do próprio atendente (o limite antes
+  // era global e escondia as dele). O teto alto é só trava de crescimento — com
+  // os índices parciais a view é barata.
+  let query = supabase
     .from("conversation_overview")
     .select("*")
-    .order("last_message_at", { ascending: false, nullsFirst: false })
-    .limit(500);
+    .order("last_message_at", { ascending: false, nullsFirst: false });
+  if (!isAdmin && userId) {
+    query = query.or(`assigned_user_id.is.null,assigned_user_id.eq.${userId}`);
+  }
+  const { data } = await query.limit(1000);
   let rows = (data as ConversationOverview[]) ?? [];
   // Grupos não fazem parte do atendimento: novas mensagens de grupo já são
   // descartadas no webhook (inbound.ts); aqui escondemos as que ficaram do
