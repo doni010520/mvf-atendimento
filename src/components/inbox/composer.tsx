@@ -206,8 +206,11 @@ export function Composer({
 
   async function toggleRecord() {
     if (recording) {
-      // Parar e ENVIAR (botão vermelho de stop).
+      // Parar e ENVIAR. requestData() força o MediaRecorder a entregar o que
+      // ainda está no buffer ANTES do stop — sem isso o último trecho se perde
+      // e o arquivo sai truncado (o cliente via "áudio não está mais disponível").
       cancelRecRef.current = false;
+      try { recorderRef.current?.requestData(); } catch { /* ignore */ }
       recorderRef.current?.stop();
       return;
     }
@@ -223,12 +226,21 @@ export function Composer({
         // Cancelado → descarta o áudio e NÃO envia.
         if (cancelRecRef.current) { cancelRecRef.current = false; chunksRef.current = []; return; }
         const blob = new Blob(chunksRef.current, { type: rec.mimeType || "audio/webm" });
+        chunksRef.current = [];
+        // Guarda: blob minúsculo = gravação truncada/sem áudio. Não envia (o
+        // cliente receberia uma mídia quebrada, impossível de tocar).
+        if (blob.size < 2000) {
+          alert("A gravação ficou muito curta ou falhou. Tente novamente, segurando um pouco mais.");
+          return;
+        }
         const ext = (rec.mimeType || "audio/webm").includes("ogg") ? "ogg" : "webm";
         // Áudio gravado envia direto sem preview.
         onSendFile(new File([blob], `audio-${Date.now()}.${ext}`, { type: blob.type }));
       };
       recorderRef.current = rec;
-      rec.start();
+      // timeslice de 250ms: o recorder entrega os dados em pedaços durante a
+      // gravação, em vez de só no fim — evita blob truncado/vazio.
+      rec.start(250);
       setRecording(true);
     } catch {
       alert("Não foi possível acessar o microfone.");

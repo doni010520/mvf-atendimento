@@ -845,7 +845,14 @@ export async function sendMediaMessage(formData: FormData) {
   // pra ogg/opus antes de subir — só nos canais Meta e só quando é áudio webm.
   if (content === "audio" && (channel as { type?: string })?.type === "meta_cloud" && /webm/i.test(`${contentType} ${ext}`)) {
     const ogg = await toOggOpus(buf);
-    if (ogg) { buf = ogg; ext = "ogg"; contentType = "audio/ogg"; }
+    // Guarda: ogg minúsculo = entrada truncada (o ffmpeg "converte" só o
+    // cabeçalho e o resultado não toca no WhatsApp — dava "áudio não está mais
+    // disponível" no cliente). Nesse caso registra e mantém o original.
+    if (ogg && ogg.length >= 2000) {
+      buf = ogg; ext = "ogg"; contentType = "audio/ogg";
+    } else if (ogg) {
+      void logEvent("warn", "atendente", `áudio convertido ficou truncado (${ogg.length}B de ${buf.length}B de entrada) — enviando original`, { conversationId, bytesIn: buf.length, bytesOut: ogg.length }, session.organization.id);
+    }
   }
 
   const path = `${session.organization.id}/out/${conversationId}-${Date.now()}.${ext}`;
