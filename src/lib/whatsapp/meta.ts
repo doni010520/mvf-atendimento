@@ -11,6 +11,13 @@ import { transcribeAudio } from "./transcribe";
 
 const GRAPH = `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}`;
 
+const MIME_BY_EXT: Record<string, string> = {
+  ogg: "audio/ogg", opus: "audio/ogg", mp3: "audio/mpeg", m4a: "audio/mp4", aac: "audio/aac", amr: "audio/amr",
+  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp",
+  mp4: "video/mp4", "3gp": "video/3gpp",
+  pdf: "application/pdf",
+};
+
 interface MetaCreds {
   phone_number_id?: string;
   access_token?: string;
@@ -93,11 +100,47 @@ export class MetaProvider implements ChannelProvider {
     return { externalId: r?.messages?.[0]?.id };
   }
 
+  /**
+   * Sobe a mídia para a Meta (/media) e devolve o media id. Enviar por ID é
+   * MUITO mais confiável que por link: com link a Meta não persistia o arquivo
+   * e o cliente via "Este áudio/mídia não está mais disponível" ao abrir.
+   */
+  private async uploadMedia(url: string, kind: string): Promise<string> {
+    const fileRes = await fetch(url);
+    if (!fileRes.ok) throw new Error(`fetch media ${fileRes.status}`);
+    const buf = Buffer.from(await fileRes.arrayBuffer());
+    const ext = (url.split("?")[0].split(".").pop() || "").toLowerCase();
+    const mime =
+      fileRes.headers.get("content-type")?.split(";")[0] ||
+      MIME_BY_EXT[ext] ||
+      (kind === "audio" ? "audio/ogg" : kind === "image" ? "image/jpeg" : "application/octet-stream");
+    const fd = new FormData();
+    fd.append("messaging_product", "whatsapp");
+    fd.append("type", mime);
+    fd.append("file", new Blob([buf], { type: mime }), `file.${ext || "bin"}`);
+    const up = await fetch(`${GRAPH}/${this.phoneNumberId}/media`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${this.accessToken}` },
+      body: fd,
+    });
+    const j = (await up.json().catch(() => ({}))) as { id?: string };
+    if (!up.ok || !j.id) throw new Error(`upload /media ${up.status} ${JSON.stringify(j).slice(0, 150)}`);
+    return j.id;
+  }
+
   async sendMedia({ to, url, caption, kind }: SendMediaParams) {
     // Só imagem/vídeo/documento aceitam `caption` na Cloud API. Áudio e sticker
     // NÃO — mandar caption (mesmo string vazia) faz a Meta rejeitar o envio.
     const supportsCaption = kind === "image" || kind === "video" || kind === "document";
-    const media: Record<string, unknown> = { link: url };
+    // Envia por ID (sobe pra /media) em vez de por link — link deixava a mídia
+    // "não disponível" no cliente. Fallback pro link se o upload falhar.
+    const media: Record<string, unknown> = {};
+    try {
+      media.id = await this.uploadMedia(url, kind);
+    } catch (e) {
+      console.error("meta uploadMedia falhou, usando link:", (e as Error)?.message);
+      media.link = url;
+    }
     if (supportsCaption && caption) media.caption = caption;
     const r = await this.graph(`${this.phoneNumberId}/messages`, {
       messaging_product: "whatsapp",
