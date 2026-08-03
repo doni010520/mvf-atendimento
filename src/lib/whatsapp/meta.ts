@@ -129,7 +129,7 @@ export class MetaProvider implements ChannelProvider {
     const fd = new FormData();
     fd.append("messaging_product", "whatsapp");
     fd.append("type", mime);
-    fd.append("file", new Blob([buf], { type: mime }), `file.${ext || "bin"}`);
+    fd.append("file", new Blob([new Uint8Array(buf)], { type: mime }), `file.${ext || "bin"}`);
     const up = await fetch(`${GRAPH}/${this.phoneNumberId}/media`, {
       method: "POST",
       headers: { Authorization: `Bearer ${this.accessToken}` },
