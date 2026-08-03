@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getSession } from "@/lib/auth";
 import { getProvider } from "@/lib/whatsapp";
-import { toOggOpus } from "@/lib/whatsapp/audio-transcode";
+import { toMp3 } from "@/lib/whatsapp/audio-transcode";
 import { getMessages, getConversations } from "@/lib/data/conversations";
 import { logEvent } from "@/lib/log";
 import type { Channel, ContentType, InternalMention } from "@/lib/types";
@@ -841,23 +841,20 @@ export async function sendMediaMessage(formData: FormData) {
   let ext = (file.name?.split(".").pop() || (file.type.split("/")[1] ?? "bin")).slice(0, 5);
   let contentType = file.type || "application/octet-stream";
 
-  // A Cloud API da Meta NÃO aceita webm (formato que o navegador grava). Converte
-  // pra ogg/opus antes de subir — só nos canais Meta e só quando é áudio webm.
-  if (content === "audio" && (channel as { type?: string })?.type === "meta_cloud" && /webm/i.test(`${contentType} ${ext}`)) {
-    const ogg = await toOggOpus(buf);
-    if (ogg) {
-      // SEMPRE usa o ogg convertido, mesmo pequeno. A Meta REJEITA webm
-      // ("Param file must be a file with a valid mime type"), então mandar o
-      // original era garantia de o cliente não receber nada. Um ogg curto/baixo
-      // pelo menos chega. Só registramos quando vier suspeito de silêncio.
-      // Com -vbr off, um áudio real nunca fica abaixo de ~2KB. Se ficou, é
-      // gravação sem som: não adianta enviar (o WhatsApp do cliente mostra
-      // "áudio não está mais disponível"). Barra com mensagem clara.
-      if (ogg.length < 2000) {
-        void logEvent("warn", "atendente", `áudio sem som barrado (${ogg.length}B de ${buf.length}B de entrada)`, { conversationId, bytesIn: buf.length, bytesOut: ogg.length }, session.organization.id);
+  // A Cloud API da Meta NÃO aceita webm (formato que o navegador grava). E o
+  // WhatsApp no iPhone recusava nossos ogg/opus ("áudio não está mais
+  // disponível") mesmo íntegros/delivered — o MESMO áudio em MP3 toca. Então:
+  // áudio para canal Meta é SEMPRE convertido para MP3.
+  if (content === "audio" && (channel as { type?: string })?.type === "meta_cloud" && /webm|ogg|opus/i.test(`${contentType} ${ext}`)) {
+    const mp3 = await toMp3(buf);
+    if (mp3) {
+      // MP3 mono 64kbps rende ~8KB/s; menos de ~3KB é gravação sem som — não
+      // adianta enviar (vira mídia que o cliente não consegue tocar).
+      if (mp3.length < 3000) {
+        void logEvent("warn", "atendente", `áudio sem som barrado (${mp3.length}B de ${buf.length}B de entrada)`, { conversationId, bytesIn: buf.length, bytesOut: mp3.length }, session.organization.id);
         return { ok: false, error: "A gravação ficou sem som (microfone não captou áudio). Verifique o microfone e grave novamente." };
       }
-      buf = ogg; ext = "ogg"; contentType = "audio/ogg";
+      buf = mp3; ext = "mp3"; contentType = "audio/mpeg";
     } else {
       // ffmpeg falhou: mandar webm para a Meta não funciona. Falha explícita.
       void logEvent("error", "atendente", "conversão de áudio falhou (ffmpeg) — envio cancelado", { conversationId, bytesIn: buf.length }, session.organization.id);

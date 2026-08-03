@@ -8,6 +8,7 @@ import type {
   InboundMessage,
 } from "./types";
 import { transcribeAudio } from "./transcribe";
+import { toMp3 } from "./audio-transcode";
 import { logEvent } from "@/lib/log";
 
 const GRAPH = `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}`;
@@ -111,12 +112,20 @@ export class MetaProvider implements ChannelProvider {
   private async uploadMedia(url: string, kind: string): Promise<{ id: string; bytes: number; mime: string }> {
     const fileRes = await fetch(url);
     if (!fileRes.ok) throw new Error(`fetch media ${fileRes.status}`);
-    const buf = Buffer.from(await fileRes.arrayBuffer());
-    const ext = (url.split("?")[0].split(".").pop() || "").toLowerCase();
-    const mime =
+    let buf: Buffer = Buffer.from(await fileRes.arrayBuffer());
+    let ext = (url.split("?")[0].split(".").pop() || "").toLowerCase();
+    let mime =
       fileRes.headers.get("content-type")?.split(";")[0] ||
       MIME_BY_EXT[ext] ||
       (kind === "audio" ? "audio/ogg" : kind === "image" ? "image/jpeg" : "application/octet-stream");
+    // Áudio ogg/opus/webm → MP3 antes de subir. O WhatsApp no iPhone recusava
+    // nossos ogg/opus ("áudio não está mais disponível") mesmo íntegros e
+    // delivered; o mesmo áudio em MP3 toca. Cobre TODOS os remetentes (bot com
+    // TTS incluso), pois este é o ponto único de saída de mídia para a Meta.
+    if (kind === "audio" && /ogg|opus|webm/i.test(`${mime} ${ext}`)) {
+      const mp3 = await toMp3(buf);
+      if (mp3 && mp3.length > 1000) { buf = mp3; ext = "mp3"; mime = "audio/mpeg"; }
+    }
     const fd = new FormData();
     fd.append("messaging_product", "whatsapp");
     fd.append("type", mime);
