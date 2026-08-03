@@ -8,6 +8,7 @@ import type {
   InboundMessage,
 } from "./types";
 import { transcribeAudio } from "./transcribe";
+import { logEvent } from "@/lib/log";
 
 const GRAPH = `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}`;
 
@@ -27,11 +28,13 @@ interface MetaCreds {
 export class MetaProvider implements ChannelProvider {
   private phoneNumberId?: string;
   private accessToken?: string;
+  private orgId?: string | null;
 
   constructor(channel: Channel) {
     const c = channel.credentials as MetaCreds;
     this.phoneNumberId = c?.phone_number_id ?? channel.external_id ?? undefined;
     this.accessToken = c?.access_token || process.env.META_ACCESS_TOKEN;
+    this.orgId = channel.organization_id;
   }
 
   private async graph(path: string, body: unknown) {
@@ -105,7 +108,7 @@ export class MetaProvider implements ChannelProvider {
    * MUITO mais confiável que por link: com link a Meta não persistia o arquivo
    * e o cliente via "Este áudio/mídia não está mais disponível" ao abrir.
    */
-  private async uploadMedia(url: string, kind: string): Promise<string> {
+  private async uploadMedia(url: string, kind: string): Promise<{ id: string; bytes: number; mime: string }> {
     const fileRes = await fetch(url);
     if (!fileRes.ok) throw new Error(`fetch media ${fileRes.status}`);
     const buf = Buffer.from(await fileRes.arrayBuffer());
@@ -125,7 +128,7 @@ export class MetaProvider implements ChannelProvider {
     });
     const j = (await up.json().catch(() => ({}))) as { id?: string };
     if (!up.ok || !j.id) throw new Error(`upload /media ${up.status} ${JSON.stringify(j).slice(0, 150)}`);
-    return j.id;
+    return { id: j.id, bytes: buf.length, mime };
   }
 
   async sendMedia({ to, url, caption, kind }: SendMediaParams) {
@@ -136,10 +139,12 @@ export class MetaProvider implements ChannelProvider {
     // "não disponível" no cliente. Fallback pro link se o upload falhar.
     const media: Record<string, unknown> = {};
     try {
-      media.id = await this.uploadMedia(url, kind);
+      const r = await this.uploadMedia(url, kind);
+      media.id = r.id;
+      void logEvent("info", "meta", `mídia ${kind} enviada por ID (${r.bytes}B, ${r.mime})`, { kind, method: "id", bytes: r.bytes, mediaId: r.id, mime: r.mime, url }, this.orgId);
     } catch (e) {
-      console.error("meta uploadMedia falhou, usando link:", (e as Error)?.message);
       media.link = url;
+      void logEvent("error", "meta", `uploadMedia FALHOU (${kind}) -> fallback LINK: ${(e as Error)?.message}`, { kind, method: "link", url, error: (e as Error)?.message }, this.orgId);
     }
     if (supportsCaption && caption) media.caption = caption;
     const r = await this.graph(`${this.phoneNumberId}/messages`, {
