@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Send, Paperclip, Mic, Loader2, MapPin, UserPlus, FileUp, Smile, Sticker, X, Image as ImageIcon, FileText, LayoutTemplate, MessageCircle, Lock, Trash2 } from "lucide-react";
 import { EmojiPicker } from "./emoji-picker";
+import { setAppBusy } from "@/components/version-watcher";
 
 type Mention = { name: string; phone: string };
 type AgentMention = { id: string; name: string };
@@ -103,6 +104,7 @@ export function Composer({
     recCtxRef.current?.close().catch(() => {});
     recCtxRef.current = null;
     setRecLevel(0);
+    setAppBusy(false); // libera o auto-reload de nova versão
   }
 
   // Candidatos de menção, normalizados para { name, key }. No modo interno são os
@@ -301,6 +303,7 @@ export function Composer({
       // timeslice de 250ms: o recorder entrega os dados em pedaços durante a
       // gravação, em vez de só no fim — evita blob truncado/vazio.
       rec.start(250);
+      setAppBusy(true); // gravando: a página não pode se recarregar sozinha
       recStartRef.current = Date.now();
       setRecSecs(0);
       recTimerRef.current = setInterval(

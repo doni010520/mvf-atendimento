@@ -35,15 +35,24 @@ export async function getConversations(): Promise<ConversationOverview[]> {
   // teto não cortar as conversas ANTIGAS do próprio atendente (o limite antes
   // era global e escondia as dele). O teto alto é só trava de crescimento — com
   // os índices parciais a view é barata.
-  let query = supabase
-    .from("conversation_overview")
-    .select("*")
-    .order("last_message_at", { ascending: false, nullsFirst: false });
-  if (!isAdmin && userId) {
-    query = query.or(`assigned_user_id.is.null,assigned_user_id.eq.${userId}`);
-  }
-  const { data } = await query.limit(1000);
-  let rows = (data as ConversationOverview[]) ?? [];
+  // Duas consultas em vez de um teto único: as ATIVAS (bot/fila/abertas) vêm
+  // TODAS — são poucas e nenhuma pode sumir da tela —, e só as ENCERRADAS
+  // levam teto (é histórico, cresce sem parar). Um limite global cortava
+  // conversas ativas antigas ("não consigo ver conversas anteriores").
+  const withVisibility = <T extends { or: (f: string) => T }>(q: T): T =>
+    !isAdmin && userId ? q.or(`assigned_user_id.is.null,assigned_user_id.eq.${userId}`) : q;
+
+  const base = () =>
+    supabase.from("conversation_overview").select("*").order("last_message_at", { ascending: false, nullsFirst: false });
+
+  const [ativas, encerradas] = await Promise.all([
+    withVisibility(base().neq("status", "closed")).limit(2000),
+    withVisibility(base().eq("status", "closed")).limit(800),
+  ]);
+  let rows = [
+    ...((ativas.data as ConversationOverview[]) ?? []),
+    ...((encerradas.data as ConversationOverview[]) ?? []),
+  ].sort((a, b) => (b.last_message_at ?? "").localeCompare(a.last_message_at ?? ""));
   // Grupos não fazem parte do atendimento: novas mensagens de grupo já são
   // descartadas no webhook (inbound.ts); aqui escondemos as que ficaram do
   // período anterior, sem apagar o histórico.
