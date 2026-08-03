@@ -50,7 +50,13 @@ export async function getConversations(): Promise<ConversationOverview[]> {
   rows = rows.filter((r) => !r.is_group);
   if (hidden.size) rows = rows.filter((r) => !hidden.has(r.channel_id));
   if (!isAdmin) {
-    rows = rows.filter((r) => !r.assigned_user_id || r.assigned_user_id === userId);
+    rows = rows.filter((r) => {
+      if (r.assigned_user_id === userId) return true; // é minha
+      if (r.assigned_user_id) return false; // de outro atendente
+      // Sem dono: fila geral (offered_to vazio) OU oferecida especificamente a mim.
+      const off = r.offered_to;
+      return !off || off.length === 0 || (userId != null && off.includes(userId));
+    });
   }
   return rows;
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { X, CheckCircle2, ArrowRightLeft, Send } from "lucide-react";
+import { X, CheckCircle2, ArrowRightLeft, Send, Check } from "lucide-react";
 import type { Tag, Profile, Department } from "@/lib/types";
 
 function Overlay({ children, onCancel }: { children: React.ReactNode; onCancel: () => void }) {
@@ -170,6 +170,7 @@ export function TransferModal({
   currentUserId: string | null;
   onConfirm: (opts: {
     toUserId: string | null;
+    toUserIds: string[];
     toDepartmentId: string | null;
     internalNote: string;
     customerMessage: string;
@@ -177,8 +178,9 @@ export function TransferModal({
   onCancel: () => void;
   pending?: boolean;
 }) {
-  const [mode, setMode] = useState<"person" | "department">("person");
+  const [mode, setMode] = useState<"person" | "team" | "department">("person");
   const [userId, setUserId] = useState<string | null>(null);
+  const [userIds, setUserIds] = useState<string[]>([]); // modo "Vários"
   const [departmentId, setDepartmentId] = useState<string | null>(null);
   const [internalNote, setInternalNote] = useState("");
   const [customerMessage, setCustomerMessage] = useState("");
@@ -187,11 +189,17 @@ export function TransferModal({
   const online = selectable.filter((a) => a.status === "online");
   const offline = selectable.filter((a) => a.status !== "online");
 
-  const canConfirm = mode === "person" ? !!userId : !!departmentId;
+  const canConfirm =
+    mode === "person" ? !!userId : mode === "team" ? userIds.length > 0 : !!departmentId;
+
+  function toggleUser(id: string) {
+    setUserIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
 
   function confirm() {
     onConfirm({
       toUserId: mode === "person" ? userId : null,
+      toUserIds: mode === "team" ? userIds : [],
       toDepartmentId: mode === "department" ? departmentId : null,
       internalNote,
       customerMessage,
@@ -210,7 +218,7 @@ export function TransferModal({
       </div>
 
       <div className="mb-4 flex rounded-lg bg-gray-100 p-1 text-sm">
-        {(["person", "department"] as const).map((m) => (
+        {(["person", "team", "department"] as const).map((m) => (
           <button
             key={m}
             onClick={() => setMode(m)}
@@ -218,12 +226,47 @@ export function TransferModal({
               mode === m ? "bg-surface text-ink shadow-sm" : "text-ink-soft"
             }`}
           >
-            {m === "person" ? "Pessoa" : "Departamento"}
+            {m === "person" ? "Pessoa" : m === "team" ? "Vários" : "Departamento"}
           </button>
         ))}
       </div>
 
-      {mode === "person" ? (
+      {mode === "team" ? (
+        <div className="mb-4">
+          <p className="mb-2 text-xs text-ink-soft">
+            Oferece para os selecionados — <b>o primeiro que assumir fica</b> com o atendimento.
+          </p>
+          <div className="max-h-52 overflow-y-auto rounded-lg border border-border">
+            {selectable.length === 0 && (
+              <p className="p-3 text-xs text-ink-soft">Nenhum outro atendente disponível.</p>
+            )}
+            {selectable.map((a) => (
+              <button
+                key={a.id}
+                onClick={() => toggleUser(a.id)}
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition ${
+                  userIds.includes(a.id) ? "bg-brand-light" : "hover:bg-gray-50"
+                }`}
+              >
+                <span
+                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                    userIds.includes(a.id) ? "border-brand bg-brand text-white" : "border-border"
+                  }`}
+                >
+                  {userIds.includes(a.id) && <Check size={11} />}
+                </span>
+                <span
+                  className={`h-2 w-2 rounded-full ${a.status === "online" ? "bg-green-500" : "bg-gray-300"}`}
+                />
+                <span className="text-ink">{a.name || a.email}</span>
+              </button>
+            ))}
+          </div>
+          {userIds.length > 0 && (
+            <p className="mt-1 text-[11px] text-ink-soft">{userIds.length} atendente(s) selecionado(s).</p>
+          )}
+        </div>
+      ) : mode === "person" ? (
         <div className="mb-4 max-h-52 overflow-y-auto rounded-lg border border-border">
           {selectable.length === 0 && (
             <p className="p-3 text-xs text-ink-soft">Nenhum outro atendente disponível.</p>

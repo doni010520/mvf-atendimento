@@ -692,6 +692,7 @@ export function Inbox({
 
   function confirmTransfer(opts: {
     toUserId: string | null;
+    toUserIds: string[];
     toDepartmentId: string | null;
     internalNote: string;
     customerMessage: string;

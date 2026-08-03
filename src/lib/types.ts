@@ -302,6 +302,7 @@ export interface ConversationOverview {
   organization_id: string;
   status: ConversationStatus;
   assigned_user_id: string | null;
+  offered_to?: string[] | null;
   department_id: string | null;
   channel_id: string;
   contact_id: string;

@@ -391,7 +391,7 @@ export async function sendMessage(
       inactivity_warned_at: null,
       status: conv.status === "closed" ? "open" : wasBot ? "open" : conv.status,
       ...(wasBot ? { ai_enabled: false } : {}),
-      ...(claim ? { assigned_user_id: session.userId } : {}),
+      ...(claim ? { assigned_user_id: session.userId, offered_to: null } : {}),
     })
     .eq("id", conversationId);
   if (wasBot) {
@@ -671,7 +671,7 @@ export async function assignToMe(conversationId: string) {
   // Assumir = humano no comando → a IA para nesta conversa (não reengaja).
   await supabase
     .from("conversations")
-    .update({ assigned_user_id: session.userId, status: "open", ai_enabled: false })
+    .update({ assigned_user_id: session.userId, status: "open", ai_enabled: false, offered_to: null })
     .eq("id", conversationId);
   void logEvent("info", "atendente", `${session.profile?.name ?? "Atendente"} assumiu o atendimento (IA pausada)`, { conversationId, userId: session.userId, action: "assumir" }, session.organization.id);
 
@@ -887,7 +887,7 @@ export async function sendMediaMessage(formData: FormData) {
       last_message_at: new Date().toISOString(),
       status: conv.status === "closed" ? "open" : conv.status,
       // Quem responde (com mídia) também ASSUME a conversa se ela não tem dono.
-      ...(!conv.assigned_user_id ? { assigned_user_id: session.userId } : {}),
+      ...(!conv.assigned_user_id ? { assigned_user_id: session.userId, offered_to: null } : {}),
     })
     .eq("id", conversationId);
   revalidatePath("/atendimento");
@@ -1130,6 +1130,7 @@ export async function toggleMute(conversationId: string, muted: boolean) {
 
 export interface TransferOptions {
   toUserId?: string | null;
+  toUserIds?: string[]; // oferecer a VÁRIOS colegas — o primeiro que assumir fica.
   toDepartmentId?: string | null;
   internalNote?: string;
   customerMessage?: string;
@@ -1145,15 +1146,26 @@ export async function transferConversation(conversationId: string, opts: Transfe
   if (!session?.organization) throw new Error("Sessão inválida.");
   const supabase = await createClient();
 
+  const offerIds = (opts.toUserIds ?? []).filter(Boolean);
   const update: Record<string, unknown> = {};
   if (opts.toDepartmentId !== undefined) update.department_id = opts.toDepartmentId || null;
   if (opts.toUserId) {
+    // Transfere para UMA pessoa: vira dona; limpa qualquer oferta pendente.
     update.assigned_user_id = opts.toUserId;
     update.status = "open";
+    update.offered_to = null;
+  } else if (offerIds.length) {
+    // OFERECE para vários colegas: fica sem dono, na fila, visível só para os
+    // escolhidos (+ admin). O primeiro que responder/assumir "pega" e some dos
+    // demais (assumir/responder limpa offered_to).
+    update.assigned_user_id = null;
+    update.status = "queued";
+    update.offered_to = offerIds;
   } else if (opts.toDepartmentId) {
     // Volta para a fila do departamento, sem atendente específico.
     update.assigned_user_id = null;
     update.status = "queued";
+    update.offered_to = null;
   }
   if (Object.keys(update).length) {
     await supabase.from("conversations").update(update).eq("id", conversationId);
@@ -1168,6 +1180,10 @@ export async function transferConversation(conversationId: string, opts: Transfe
     if (opts.toUserId) {
       const { data: prof } = await supabase.from("profiles").select("name").eq("id", opts.toUserId).maybeSingle();
       alvo = prof?.name ? `para ${prof.name}` : "para outro atendente";
+    } else if (offerIds.length) {
+      const { data: profs } = await supabase.from("profiles").select("name").in("id", offerIds);
+      const nomes = (profs ?? []).map((p) => p.name).filter(Boolean).join(", ");
+      alvo = nomes ? `para ${nomes} (o primeiro que assumir fica)` : "para vários atendentes (o primeiro que assumir fica)";
     } else if (opts.toDepartmentId) {
       const { data: dept } = await supabase.from("departments").select("name").eq("id", opts.toDepartmentId).maybeSingle();
       alvo = dept?.name ? `para a fila do departamento ${dept.name}` : "para a fila do departamento";
