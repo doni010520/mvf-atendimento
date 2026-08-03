@@ -544,15 +544,15 @@ export async function markMentionsRead(conversationId?: string) {
 
 /** Modelos (templates) aprovados disponíveis para envio (Meta, fora da janela). */
 export async function getApprovedTemplates(): Promise<
-  { name: string; language: string; bodyText: string; varCount: number }[]
+  { name: string; language: string; bodyText: string; varCount: number; channelId: string | null }[]
 > {
   if (isPreview()) return [];
   const supabase = await createClient();
   const { data } = await supabase
     .from("wa_templates")
-    .select("name, language, category, components, status")
+    .select("name, language, category, components, status, channel_id")
     .order("name");
-  type Row = { name: string; language: string; status?: string; components?: unknown };
+  type Row = { name: string; language: string; status?: string; components?: unknown; channel_id?: string | null };
   return ((data as Row[]) ?? [])
     .filter((t) => !t.status || /approved|ativo/i.test(t.status))
     .map((t) => {
@@ -560,7 +560,7 @@ export async function getApprovedTemplates(): Promise<
       const body = comps.find((c) => String(c.type).toUpperCase() === "BODY");
       const bodyText = body ? String(body.text ?? "") : "";
       const varCount = (bodyText.match(/\{\{\s*\d+\s*\}\}/g) ?? []).length;
-      return { name: t.name, language: t.language || "pt_BR", bodyText, varCount };
+      return { name: t.name, language: t.language || "pt_BR", bodyText, varCount, channelId: t.channel_id ?? null };
     });
 }
 

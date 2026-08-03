@@ -47,7 +47,7 @@ export function ChatThread({
   messages: Message[];
   groupParticipants?: { name: string; phone: string }[];
   quickReplies?: { title: string; content: string; shortcut: string | null }[];
-  templates?: { name: string; language: string; bodyText: string; varCount: number }[];
+  templates?: { name: string; language: string; bodyText: string; varCount: number; channelId?: string | null }[];
   onSendTemplate?: (name: string, language: string, params: string[]) => void;
   onSend: (text: string, replyId?: string, mentions?: { name: string; phone: string }[]) => void;
   onSendInternal?: (text: string, mentions: { id: string; name: string }[]) => void;
@@ -320,6 +320,7 @@ export function ChatThread({
         windowOpen={windowOpen}
         isMeta={isMeta}
         templates={templates}
+        channelId={conversation.channel_id}
         onSendTemplate={onSendTemplate}
         mentionCandidates={
           conversation.is_group && groupParticipants?.length

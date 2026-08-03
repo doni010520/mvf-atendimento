@@ -63,7 +63,7 @@ import { CloseModal, TransferModal } from "./attendance-modals";
 import { toast } from "@/components/toast";
 import type { ConversationOverview, Message, Tag, Profile, Department, Channel } from "@/lib/types";
 
-type TemplateOpt = { name: string; language: string; bodyText: string; varCount: number };
+type TemplateOpt = { name: string; language: string; bodyText: string; varCount: number; channelId?: string | null };
 
 export function Inbox({
   initialConversations,

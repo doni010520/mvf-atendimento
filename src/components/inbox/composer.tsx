@@ -7,7 +7,7 @@ import { EmojiPicker } from "./emoji-picker";
 type Mention = { name: string; phone: string };
 type AgentMention = { id: string; name: string };
 type QuickReply = { title: string; content: string; shortcut: string | null };
-type Template = { name: string; language: string; bodyText: string; varCount: number };
+type Template = { name: string; language: string; bodyText: string; varCount: number; channelId?: string | null };
 
 export function Composer({
   onSend,
@@ -22,6 +22,7 @@ export function Composer({
   windowOpen = true,
   isMeta = false,
   templates,
+  channelId,
   onSendTemplate,
   disabled,
   sending,
@@ -39,6 +40,7 @@ export function Composer({
   windowOpen?: boolean;
   isMeta?: boolean;
   templates?: Template[];
+  channelId?: string | null;
   onSendTemplate?: (name: string, language: string, params: string[]) => void;
   disabled?: boolean;
   sending?: boolean;
@@ -54,6 +56,12 @@ export function Composer({
   const [qrQuery, setQrQuery] = useState("");
   // Modo template (Meta fora da janela de 24h).
   const [tplPick, setTplPick] = useState<Template | null>(null);
+  // Templates são POR canal/WABA (cada número tem os seus). Mostra só os do
+  // canal desta conversa — mais os sem canal (cadastrados manualmente/globais).
+  const visibleTemplates = useMemo(
+    () => (templates ?? []).filter((t) => t.channelId == null || t.channelId === channelId),
+    [templates, channelId],
+  );
   const [tplParams, setTplParams] = useState<string[]>([]);
 
   // Foco automático ao mudar focusTrigger (ex.: clicar Responder).
@@ -327,14 +335,14 @@ export function Composer({
             <span>⚠️</span>
             <span>Janela de 24h encerrada (canal <b>API Oficial</b>). Só é possível enviar um <b>modelo aprovado</b> para reabrir a conversa.</span>
           </div>
-          {(templates?.length ?? 0) === 0 ? (
+          {visibleTemplates.length === 0 ? (
             <p className="text-xs text-ink-soft">
-              Nenhum modelo aprovado disponível. Cadastre ou sincronize em{" "}
+              Nenhum modelo aprovado disponível para este número. Cadastre ou sincronize em{" "}
               <a href="/mensagens/templates" className="text-brand underline">Mensagens → Templates</a>.
             </p>
           ) : !tplPick ? (
             <div className="flex flex-wrap gap-2">
-              {templates!.map((t) => (
+              {visibleTemplates.map((t) => (
                 <button
                   key={`${t.name}-${t.language}`}
                   onClick={() => { setTplPick(t); setTplParams(Array(t.varCount).fill("")); }}
