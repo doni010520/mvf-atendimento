@@ -32,11 +32,12 @@ Produção: **https://mvfchat.benitechlab.com** · versão atual em `GET /api/ve
 - O **agente de IA** detecta um código PIX (SGP 2ª via) e já envia nesse formato de cartão automaticamente; se o canal não suportar, cai para texto com o código.
 
 ### Atendimento
-- **Ações:** assumir, transferir (departamento), encerrar (com CSAT), silenciar.
+- **Ações:** assumir, transferir (departamento/atendente), encerrar (com CSAT), silenciar. Toda **transferência deixa um marcador visível** no histórico (“🔄 Fulano transferiu para Beltrano”).
 - **Protocolo:** ao **assumir**, gera e registra um **número de protocolo** e dispara a mensagem de boas-vindas para o cliente. Atendimentos podem ser **buscados pelo número de protocolo**.
+- **Visibilidade por atendente:** um **atendente** (não-admin) vê só as conversas **sem dono** (fila/IA) + as **atribuídas a ele**; nunca as de outro atendente. **Admin/dono veem tudo.** Quem **responde assume** a conversa automaticamente se ela ainda não tiver dono — assim ela sai da fila e da lista dos demais.
 - **Mensagens internas entre atendentes** (aba no composer) + **notificações de menção** (sino, tempo real).
 - **Notas internas** na conversa.
-- **Respostas rápidas / macros** e **templates** (Meta, fora da janela de 24h).
+- **Respostas rápidas / macros** e **templates** (Meta, fora da janela de 24h). Templates são **por número/WABA** — o composer mostra só os do canal daquela conversa; sincronize em *Mensagens → Templates* (varre todos os números Meta).
 
 ### Integração SGP (no painel do contato)
 - **Busca por CPF/CNPJ** varre **todos os SGPs** configurados (multi-SGP) e lista **todos os contratos** do cliente; quando há mais de um, mostra um **seletor de contrato**.
