@@ -528,6 +528,44 @@ export async function persistStatusUpdates(updates: { externalId: string; status
   }
 }
 
+/**
+ * Status vindos da Meta, incluindo FALHA com o motivo. Quando a Meta recusa
+ * entregar (ex.: mídia que o cliente não consegue baixar), o motivo chega aqui
+ * — antes esses eventos eram ignorados e a mensagem ficava "sent" para sempre.
+ */
+export async function persistMetaStatuses(
+  updates: { externalId: string; status: "sent" | "delivered" | "read" | "failed"; errorCode?: number; errorTitle?: string; errorDetails?: string }[],
+) {
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY || !updates.length) return;
+  const db = createServiceClient();
+  for (const u of updates) {
+    const tail = u.externalId.includes(":") ? u.externalId.split(":").pop()! : u.externalId;
+    const { data: msg } = await db
+      .from("messages")
+      .select("id, status, content_type, organization_id")
+      .eq("direction", "out")
+      .or(`external_id.eq.${u.externalId},external_id.ilike.%${tail}`)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!msg) continue;
+    if (u.status === "failed") {
+      await db.from("messages").update({ status: "failed" }).eq("id", msg.id);
+      void logEvent(
+        "error",
+        "meta",
+        `Meta NÃO entregou (${msg.content_type}): [${u.errorCode ?? "?"}] ${u.errorTitle ?? ""} — ${(u.errorDetails ?? "").slice(0, 200)}`,
+        { messageId: msg.id, contentType: msg.content_type, errorCode: u.errorCode, errorTitle: u.errorTitle, errorDetails: u.errorDetails },
+        msg.organization_id,
+      );
+      continue;
+    }
+    if ((STATUS_RANK[u.status] ?? 0) > (STATUS_RANK[msg.status] ?? 0)) {
+      await db.from("messages").update({ status: u.status }).eq("id", msg.id);
+    }
+  }
+}
+
 type Reaction = { emoji: string; by: string };
 
 /** Anexa (ou remove, se emoji vazio) uma reação à mensagem-alvo, casando pelo id externo. */

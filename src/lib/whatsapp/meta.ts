@@ -322,6 +322,42 @@ export interface ContactStateSync {
   action: "add" | "update" | "remove" | string;
 }
 
+/** Status de entrega reportado pela Meta (sent/delivered/read/failed). */
+export interface MetaStatus {
+  externalId: string;
+  status: "sent" | "delivered" | "read" | "failed";
+  recipient?: string;
+  errorCode?: number;
+  errorTitle?: string;
+  errorDetails?: string;
+}
+
+/**
+ * statuses[] do webhook: é aqui que a Meta diz se a mensagem foi ENTREGUE e,
+ * quando falha, POR QUÊ (código + descrição). Sem processar isso, mensagens
+ * ficavam eternamente em "sent" e a causa real de falhas de mídia se perdia.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseMetaStatuses(payload: any): MetaStatus[] {
+  const out: MetaStatus[] = [];
+  for (const entry of payload?.entry ?? []) {
+    for (const change of entry?.changes ?? []) {
+      for (const s of change?.value?.statuses ?? []) {
+        const err = s?.errors?.[0];
+        out.push({
+          externalId: String(s?.id ?? ""),
+          status: s?.status,
+          recipient: s?.recipient_id,
+          errorCode: err?.code,
+          errorTitle: err?.title,
+          errorDetails: err?.error_data?.details ?? err?.message,
+        });
+      }
+    }
+  }
+  return out.filter((s) => s.externalId && s.status);
+}
+
 /** smb_message_echoes → mensagens de saída enviadas pelo celular. */
 export function parseMetaEchoes(payload: any): OutboundEcho[] {
   const out: OutboundEcho[] = [];

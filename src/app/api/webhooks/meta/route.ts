@@ -5,8 +5,9 @@ import {
   parseMetaWebhook,
   parseMetaEchoes,
   parseMetaStateSync,
+  parseMetaStatuses,
 } from "@/lib/whatsapp/meta";
-import { persistInbound } from "@/lib/whatsapp/inbound";
+import { persistInbound, persistMetaStatuses } from "@/lib/whatsapp/inbound";
 import { persistEchoes, persistContactSync } from "@/lib/whatsapp/coexistence";
 
 // Verificação do webhook (handshake da Meta).
@@ -54,6 +55,12 @@ export async function POST(request: Request) {
     // Mensagens recebidas (inbound) + status.
     const inbound = parseMetaWebhook(payload);
     if (inbound.length) await persistInbound(inbound);
+
+    // Status de entrega (entregue/lido) e, principalmente, FALHAS com o motivo
+    // reportado pela Meta — isso não era processado e escondia a causa real de
+    // mídia que o cliente não conseguia abrir.
+    const statuses = parseMetaStatuses(payload);
+    if (statuses.length) await persistMetaStatuses(statuses);
 
     // Coexistência: ecos de mensagens enviadas pelo app WhatsApp Business.
     const echoes = parseMetaEchoes(payload);
