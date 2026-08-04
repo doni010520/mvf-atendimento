@@ -250,6 +250,44 @@ export class SgpClient {
       }));
   }
 
+  /**
+   * Baixa o PDF do CONTRATO do cliente. GET /api/contratos/print/{tipo}.
+   * Pegadinha do SGP: o endpoint só aceita GET **com os parâmetros no CORPO**
+   * (form), o que o fetch() proíbe — por isso usamos node:https direto.
+   * tipos: contrato | termoadesao | contratofidelidade | cancelamento |
+   *        termocomodato | termoaceite_web | termoprivacidade
+   */
+  async contratoPdf(contrato: number, tipo = "contrato"): Promise<Buffer | null> {
+    const { request } = await import("node:https");
+    const body = new URLSearchParams({ app: this.app, token: this.token, contrato: String(contrato) }).toString();
+    const u = new URL(`${this.base}/api/contratos/print/${tipo}`);
+    return new Promise((resolve) => {
+      const req = request(
+        {
+          hostname: u.hostname,
+          port: u.port || 443,
+          path: u.pathname + u.search,
+          method: "GET",
+          headers: { "Content-Type": "application/x-www-form-urlencoded", "Content-Length": Buffer.byteLength(body) },
+          timeout: this.timeoutMs,
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (c) => chunks.push(c));
+          res.on("end", () => {
+            const buf = Buffer.concat(chunks);
+            const isPdf = res.statusCode === 200 && buf.subarray(0, 5).toString() === "%PDF-";
+            resolve(isPdf ? buf : null);
+          });
+        },
+      );
+      req.on("error", () => resolve(null));
+      req.on("timeout", () => { req.destroy(); resolve(null); });
+      req.write(body);
+      req.end();
+    });
+  }
+
   /** Lista os gateways de SMS configurados no SGP. GET /api/sms/gateway/list/ */
   async listarGatewaysSms(): Promise<{ id: number; descricao?: string; gateway?: string }[]> {
     const raw = await this.getQuery<unknown>("api/sms/gateway/list/");

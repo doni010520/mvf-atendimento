@@ -1623,6 +1623,69 @@ export async function sgpSendBoleto(conversationId: string, contrato: number): P
 }
 
 /**
+ * Envia o CONTRATO do cliente (PDF gerado pelo SGP) como documento na conversa.
+ * ("Mandar o contrato pelo WhatsApp" — antes era feito pelo Chatmix.)
+ */
+export async function sgpSendContrato(conversationId: string, contrato: number): Promise<{ ok: boolean; message: string }> {
+  if (isPreview()) return { ok: false, message: "Modo preview." };
+  const session = await getSession();
+  if (!session?.organization) throw new Error("Sessão inválida.");
+  const { sgpFromConfig } = await import("@/lib/sgp");
+  const supabase = await createClient();
+
+  const { data: integs } = await supabase
+    .from("integrations").select("config")
+    .eq("organization_id", session.organization.id).eq("type", "sgp").eq("active", true);
+  const clients = ((integs ?? []) as { config: unknown }[])
+    .map((r) => { try { return sgpFromConfig(r.config); } catch { return null; } })
+    .filter((c): c is NonNullable<typeof c> => !!c);
+  if (!clients.length) return { ok: false, message: "Nenhum SGP configurado." };
+
+  // Acha o SGP do contrato (multi-cidade) e baixa o PDF do contrato.
+  let pdf: Buffer | null = null;
+  for (const sgp of clients) {
+    const c = await sgp.consultarCliente({ contrato }).catch(() => null);
+    if (!c?.encontrado) continue;
+    pdf = await sgp.contratoPdf(contrato);
+    break;
+  }
+  if (!pdf) {
+    // fallback: tenta em todos (consultarCliente pode falhar mesmo com contrato válido)
+    for (const sgp of clients) { pdf = await sgp.contratoPdf(contrato); if (pdf) break; }
+  }
+  if (!pdf) return { ok: false, message: "Não foi possível gerar o PDF do contrato no SGP." };
+
+  const { to, channel } = await recipientFor(supabase, conversationId);
+  const provider = getProvider(channel);
+  const orgId = session.organization.id;
+  const caption = "Segue o seu contrato 📄 Qualquer dúvida, estamos à disposição!";
+
+  const svc = createServiceClient();
+  const path = `${orgId}/out/contrato-${contrato}-${Date.now()}.pdf`;
+  const up = await svc.storage.from("media").upload(path, pdf, { contentType: "application/pdf", upsert: true });
+  if (up.error) return { ok: false, message: "Falha ao preparar o arquivo do contrato." };
+  const pdfUrl = svc.storage.from("media").getPublicUrl(path).data.publicUrl;
+
+  const { data: msg } = await supabase.from("messages").insert({
+    organization_id: orgId, conversation_id: conversationId, direction: "out",
+    sender_type: "agent", sender_id: session.userId, content_type: "document",
+    body: caption, media_url: pdfUrl, status: "pending",
+  }).select("id").single();
+  try {
+    const res = await provider.sendMedia({ to, url: pdfUrl, caption, kind: "document" });
+    await supabase.from("messages").update({ status: "sent", external_id: res.externalId ?? null }).eq("id", msg!.id);
+    await supabase.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conversationId);
+    void logEvent("info", "atendente", `${session.profile?.name ?? "Atendente"} enviou o CONTRATO em PDF (contrato ${contrato})`, { conversationId, userId: session.userId, action: "enviar_contrato", contrato }, orgId);
+    revalidatePath("/atendimento");
+    return { ok: true, message: `Contrato ${contrato} enviado ao cliente em PDF ✅` };
+  } catch (e) {
+    console.error("sgpSendContrato send", e);
+    await supabase.from("messages").update({ status: "failed" }).eq("id", msg!.id);
+    return { ok: false, message: "Falha ao enviar o contrato ao cliente. Tente novamente." };
+  }
+}
+
+/**
  * Dispara um SMS DE VERDADE (rede celular) pelo gateway de SMS do SGP
  * (ex.: Facilita). O SGP entrega; aqui só comandamos e registramos uma nota
  * interna na conversa para o histórico do atendimento.

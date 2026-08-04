@@ -13,7 +13,7 @@ import {
   sgpAction,
   sgpSendPix,
   sgpSendBoleto,
-  sgpSendSms,
+  sgpSendContrato,
   sgpLookupByCpf,
   type SgpContrato,
   type ContactDetails,
@@ -316,16 +316,15 @@ export function ContactPanel({
                     { action: "pix", label: "PIX", icon: QrCode },
                     { action: "liberacao", label: "Liberar", icon: Unlock },
                     { action: "status", label: "Status", icon: Wrench },
-                    { action: "sms", label: "SMS", icon: MessageSquare },
+                    { action: "contrato", label: "Contrato", icon: MessageSquare },
                   ] as const).map(({ action, label, icon: Icon }) => (
                     <button key={action} type="button"
                       onClick={async () => {
                         const ct = parseInt(fields.contrato, 10);
-                        if (action === "sms") {
-                          // SMS de VERDADE via gateway do SGP (Facilita).
-                          const texto = prompt("Texto do SMS para o cliente (máx. ~160 caracteres):");
-                          if (!texto?.trim()) return;
-                          const r = await sgpSendSms(conversation.id, texto, ct);
+                        if (action === "contrato") {
+                          // Envia o CONTRATO (PDF do SGP) como documento na conversa.
+                          if (!confirm("Enviar o CONTRATO em PDF para o cliente agora?")) return;
+                          const r = await sgpSendContrato(conversation.id, ct);
                           alert(r.message);
                           return;
                         }
