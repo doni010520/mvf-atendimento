@@ -15,6 +15,7 @@ import {
   removeGroupParticipant,
   sgpAction,
   sgpSendPix,
+  sgpSendBoleto,
   sgpLookupByCpf,
   type ContactDetails,
   type GroupInfoResult,
@@ -382,6 +383,13 @@ export function AttendancePanel({
                               // PIX: envia o copia-e-cola direto pro cliente na conversa.
                               if (!confirm("Enviar o PIX (copia e cola) para o cliente agora?")) return;
                               const r = await sgpSendPix(conversation.id, ct);
+                              alert(r.message);
+                              return;
+                            }
+                            if (action === "segunda_via") {
+                              // 2ª via: baixa o BOLETO EM PDF no SGP e envia como documento.
+                              if (!confirm("Enviar o boleto (PDF) da fatura mais antiga em aberto para o cliente agora?")) return;
+                              const r = await sgpSendBoleto(conversation.id, ct);
                               alert(r.message);
                               return;
                             }

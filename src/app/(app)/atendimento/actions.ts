@@ -1524,6 +1524,104 @@ export async function sgpSendPix(conversationId: string, contrato: number): Prom
     : { ok: false, message: "Não foi possível enviar o PIX ao cliente. Tente novamente." };
 }
 
+/**
+ * 2ª via: baixa o BOLETO EM PDF no SGP e envia como documento na conversa.
+ * (O botão "2ª Via" antes só mostrava linha digitável/link para o atendente —
+ * o pedido da operação é entregar o ARQUIVO ao cliente.)
+ * Se o PDF não estiver disponível, cai para texto com linha digitável + link.
+ */
+export async function sgpSendBoleto(conversationId: string, contrato: number): Promise<{ ok: boolean; message: string }> {
+  if (isPreview()) return { ok: false, message: "Modo preview." };
+  const session = await getSession();
+  if (!session?.organization) throw new Error("Sessão inválida.");
+  const { sgpFromConfig } = await import("@/lib/sgp");
+  const supabase = await createClient();
+
+  const { data: integs } = await supabase
+    .from("integrations").select("config")
+    .eq("organization_id", session.organization.id).eq("type", "sgp").eq("active", true);
+  const clients = ((integs ?? []) as { config: unknown }[])
+    .map((r) => { try { return sgpFromConfig(r.config); } catch { return null; } })
+    .filter((c): c is NonNullable<typeof c> => !!c);
+  if (!clients.length) return { ok: false, message: "Nenhum SGP configurado." };
+
+  // Acha o SGP do contrato e pega a 2ª via com link do PDF.
+  type Fat = { fatura: number; valor?: number; vencimento?: string; linhaDigitavel?: string; link?: string };
+  let faturas: Fat[] = [];
+  for (const sgp of clients) {
+    const r = await sgp.segundaVia({ contrato, linkPdf: true }).catch(() => null);
+    if (r?.ok && r.faturas?.length) { faturas = r.faturas as Fat[]; break; }
+  }
+  if (!faturas.length) return { ok: false, message: "Nenhuma fatura em aberto para este contrato." };
+  // Mais antiga primeiro (vencimento asc, quando disponível).
+  faturas.sort((a, b) => String(a.vencimento ?? "9999").localeCompare(String(b.vencimento ?? "9999")));
+  const f = faturas[0];
+
+  const { to, channel } = await recipientFor(supabase, conversationId);
+  const provider = getProvider(channel);
+  const orgId = session.organization.id;
+  const venc = fmtVenc(f.vencimento);
+  const val = typeof f.valor === "number" ? `R$ ${f.valor.toFixed(2).replace(".", ",")}` : null;
+  const ref = [val, venc ? `venc. ${venc}` : null].filter(Boolean).join(" — ");
+  const caption = `Boleto da sua fatura${ref ? ` (${ref})` : ""} 📄`;
+
+  // Baixa o PDF no SGP e re-hospeda no nosso Storage (o link do SGP pode ser
+  // temporário/exigir sessão; a Meta precisa conseguir baixar o arquivo).
+  let pdfUrl: string | null = null;
+  if (f.link) {
+    try {
+      const res = await fetch(f.link);
+      const buf = Buffer.from(await res.arrayBuffer());
+      const looksPdf = res.ok && (buf.subarray(0, 5).toString() === "%PDF-" || /pdf/i.test(res.headers.get("content-type") ?? ""));
+      if (looksPdf && buf.length > 1000) {
+        const svc = createServiceClient();
+        const path = `${orgId}/out/boleto-${contrato}-${f.fatura}-${Date.now()}.pdf`;
+        const up = await svc.storage.from("media").upload(path, buf, { contentType: "application/pdf", upsert: true });
+        if (!up.error) pdfUrl = svc.storage.from("media").getPublicUrl(path).data.publicUrl;
+      }
+    } catch (e) { console.error("sgpSendBoleto download", e); }
+  }
+
+  if (pdfUrl) {
+    const { data: msg } = await supabase.from("messages").insert({
+      organization_id: orgId, conversation_id: conversationId, direction: "out",
+      sender_type: "agent", sender_id: session.userId, content_type: "document",
+      body: caption, media_url: pdfUrl, status: "pending",
+    }).select("id").single();
+    try {
+      const res = await provider.sendMedia({ to, url: pdfUrl, caption, kind: "document" });
+      await supabase.from("messages").update({ status: "sent", external_id: res.externalId ?? null }).eq("id", msg!.id);
+      await supabase.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conversationId);
+      void logEvent("info", "atendente", `${session.profile?.name ?? "Atendente"} enviou boleto PDF (contrato ${contrato}, fatura ${f.fatura}${venc ? `, venc. ${venc}` : ""})`, { conversationId, userId: session.userId, action: "enviar_boleto", fatura: f.fatura }, orgId);
+      revalidatePath("/atendimento");
+      return { ok: true, message: `Boleto em PDF enviado ao cliente ✅\n\nFatura ${f.fatura}${ref ? ` — ${ref}` : ""}` };
+    } catch (e) {
+      console.error("sgpSendBoleto send", e);
+      await supabase.from("messages").update({ status: "failed" }).eq("id", msg!.id);
+      return { ok: false, message: "Falha ao enviar o PDF ao cliente. Tente novamente." };
+    }
+  }
+
+  // Fallback: sem PDF disponível → manda texto com linha digitável e link.
+  const partes = [caption, f.linhaDigitavel ? `Linha digitável:\n${f.linhaDigitavel}` : null, f.link ? `Link: ${f.link}` : null].filter(Boolean) as string[];
+  const body = partes.join("\n\n");
+  const { data: msg } = await supabase.from("messages").insert({
+    organization_id: orgId, conversation_id: conversationId, direction: "out",
+    sender_type: "agent", sender_id: session.userId, content_type: "text",
+    body, status: "pending",
+  }).select("id").single();
+  try {
+    const res = await provider.sendText({ to, text: body });
+    await supabase.from("messages").update({ status: "sent", external_id: res.externalId ?? null }).eq("id", msg!.id);
+    await supabase.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conversationId);
+    revalidatePath("/atendimento");
+    return { ok: true, message: "PDF indisponível no SGP — enviei a linha digitável e o link ao cliente." };
+  } catch {
+    await supabase.from("messages").update({ status: "failed" }).eq("id", msg!.id);
+    return { ok: false, message: "Não foi possível enviar a 2ª via ao cliente." };
+  }
+}
+
 /** Remove um participante de um grupo WhatsApp. */
 export async function removeGroupParticipant(conversationId: string, phone: string): Promise<{ ok: boolean; error?: string }> {
   if (isPreview()) return { ok: false, error: "Modo preview." };
