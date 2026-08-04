@@ -1622,6 +1622,63 @@ export async function sgpSendBoleto(conversationId: string, contrato: number): P
   }
 }
 
+/**
+ * Dispara um SMS DE VERDADE (rede celular) pelo gateway de SMS do SGP
+ * (ex.: Facilita). O SGP entrega; aqui só comandamos e registramos uma nota
+ * interna na conversa para o histórico do atendimento.
+ */
+export async function sgpSendSms(conversationId: string, texto: string, contrato?: number): Promise<{ ok: boolean; message: string }> {
+  if (isPreview()) return { ok: false, message: "Modo preview." };
+  const msg = texto.trim();
+  if (!msg) return { ok: false, message: "Digite a mensagem do SMS." };
+  const session = await getSession();
+  if (!session?.organization) throw new Error("Sessão inválida.");
+  const { sgpFromConfig } = await import("@/lib/sgp");
+  const supabase = await createClient();
+
+  // Telefone do contato da conversa (SMS vai pro número do WhatsApp dele).
+  const { data: conv } = await supabase
+    .from("conversation_overview")
+    .select("contact_phone, is_group")
+    .eq("id", conversationId)
+    .single();
+  if (!conv || conv.is_group) return { ok: false, message: "Conversa sem telefone de contato." };
+  // SGP espera DDD+numero (sem o 55).
+  const digits = String(conv.contact_phone ?? "").replace(/\D+/g, "");
+  const phone = digits.startsWith("55") && digits.length >= 12 ? digits.slice(2) : digits;
+  if (phone.length < 10) return { ok: false, message: `Telefone inválido para SMS: ${conv.contact_phone}` };
+
+  const { data: integs } = await supabase
+    .from("integrations").select("config")
+    .eq("organization_id", session.organization.id).eq("type", "sgp").eq("active", true);
+  const clients = ((integs ?? []) as { config: unknown }[])
+    .map((r) => { try { return sgpFromConfig(r.config); } catch { return null; } })
+    .filter((c): c is NonNullable<typeof c> => !!c);
+  if (!clients.length) return { ok: false, message: "Nenhum SGP configurado." };
+
+  // Acha um SGP com gateway de SMS REAL (ignora "HTTP Generico"/Chatmix) e dispara.
+  for (const sgp of clients) {
+    const gws = await sgp.listarGatewaysSms().catch(() => []);
+    const real = gws.find((g) => !/http\s*gen[eé]rico|chatmix/i.test(`${g.gateway ?? ""} ${g.descricao ?? ""}`));
+    if (!real) continue;
+    const r = await sgp.enviarSms({ phone, msg, gateway: real.id, idcontrato: contrato }).catch(() => ({ ok: false }) as const);
+    if (r.ok) {
+      // Nota interna no histórico (só a equipe vê — o SMS não é mensagem de WhatsApp).
+      await supabase.from("messages").insert({
+        organization_id: session.organization.id, conversation_id: conversationId,
+        direction: "out", sender_type: "system", sender_id: session.userId,
+        content_type: "text", body: `📱 SMS enviado via ${real.descricao ?? "gateway SGP"} para ${phone}:\n"${msg}"`,
+        is_internal: true, status: "sent",
+      });
+      await supabase.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conversationId);
+      void logEvent("info", "atendente", `${session.profile?.name ?? "Atendente"} enviou SMS via SGP (${real.descricao ?? real.id}) para ${phone}`, { conversationId, userId: session.userId, action: "enviar_sms", gateway: real.id }, session.organization.id);
+      revalidatePath("/atendimento");
+      return { ok: true, message: `SMS enviado para ${phone} via ${real.descricao ?? "gateway do SGP"} ✅` };
+    }
+  }
+  return { ok: false, message: "Nenhum gateway de SMS real disponível no SGP (só o HTTP genérico) ou o disparo falhou." };
+}
+
 /** Remove um participante de um grupo WhatsApp. */
 export async function removeGroupParticipant(conversationId: string, phone: string): Promise<{ ok: boolean; error?: string }> {
   if (isPreview()) return { ok: false, error: "Modo preview." };

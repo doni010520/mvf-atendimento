@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   Home, User, Receipt, LifeBuoy, Loader2, Save, Check,
-  QrCode, Unlock, Wrench, Printer, Plus, Users, Crown, Shield, UserMinus, Search,
+  QrCode, Unlock, Wrench, Printer, Plus, Users, Crown, Shield, UserMinus, Search, MessageSquare,
 } from "lucide-react";
 import { formatPhone } from "@/lib/utils";
 import { AttendanceHistory, type AttendanceHistoryItem } from "./attendance-history";
@@ -16,6 +16,7 @@ import {
   sgpAction,
   sgpSendPix,
   sgpSendBoleto,
+  sgpSendSms,
   sgpLookupByCpf,
   type ContactDetails,
   type GroupInfoResult,
@@ -375,10 +376,19 @@ export function AttendancePanel({
                         { action: "pix", label: "PIX", icon: QrCode },
                         { action: "liberacao", label: "Liberar", icon: Unlock },
                         { action: "status", label: "Status", icon: Wrench },
+                        { action: "sms", label: "SMS", icon: MessageSquare },
                       ] as const).map(({ action, label, icon: Icon }) => (
                         <button key={action} type="button"
                           onClick={async () => {
                             const ct = parseInt(fields.contrato, 10);
+                            if (action === "sms") {
+                              // SMS de VERDADE via gateway do SGP (Facilita).
+                              const texto = prompt("Texto do SMS para o cliente (máx. ~160 caracteres):");
+                              if (!texto?.trim()) return;
+                              const r = await sgpSendSms(conversation.id, texto, ct);
+                              alert(r.message);
+                              return;
+                            }
                             if (action === "pix") {
                               // PIX: envia o copia-e-cola direto pro cliente na conversa.
                               if (!confirm("Enviar o PIX (copia e cola) para o cliente agora?")) return;

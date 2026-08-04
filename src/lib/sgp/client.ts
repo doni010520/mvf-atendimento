@@ -250,6 +250,32 @@ export class SgpClient {
       }));
   }
 
+  /** Lista os gateways de SMS configurados no SGP. GET /api/sms/gateway/list/ */
+  async listarGatewaysSms(): Promise<{ id: number; descricao?: string; gateway?: string }[]> {
+    const raw = await this.getQuery<unknown>("api/sms/gateway/list/");
+    return asArray(raw)
+      .filter((g) => pick(g, ["id"]) != null)
+      .map((g) => ({ id: pickNum(g, ["id"]) ?? 0, descricao: pickStr(g, ["descricao"]), gateway: pickStr(g, ["gateway"]) }));
+  }
+
+  /**
+   * Dispara um SMS de VERDADE pelo gateway do SGP (ex.: Facilita).
+   * GET /api/sms/send/  phone: DDD+numero (sem 55); aceita vários por vírgula.
+   * A resposta de sucesso observada é o literal "OK".
+   */
+  async enviarSms(by: { phone: string; msg: string; gateway: number; idcontrato?: number; linkUrl?: string }): Promise<{ ok: boolean; raw?: unknown }> {
+    const raw = await this.getQuery<unknown>("api/sms/send/", {
+      phone: by.phone,
+      msg: by.msg,
+      gateway: by.gateway,
+      idcontrato: by.idcontrato,
+      link_url: by.linkUrl,
+    });
+    const s = typeof raw === "string" ? raw : JSON.stringify(raw ?? "");
+    const ok = /ok|sucesso|"status"\s*:\s*1/i.test(s) && !/erro|error|inv[aá]lid/i.test(s);
+    return { ok, raw };
+  }
+
   /** Reinicia (reset) remotamente uma ONU pelo seu id. GET /api/fttx/onu/{id}/reset/ */
   async resetarOnu(idOnu: number): Promise<{ ok: boolean; mensagem?: string; raw?: unknown }> {
     const raw = await this.getQuery<Record<string, unknown>>(`api/fttx/onu/${idOnu}/reset/`);
