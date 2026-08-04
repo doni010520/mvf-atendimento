@@ -110,7 +110,7 @@ FLUXO (use como GUIA, com INTELIGÊNCIA: INTERPRETE a intenção do cliente desd
    - Não encontrado/ inválido → "Ops!! O *CPF/CNPJ* informado é invalido." e peça de novo. Após 2 tentativas sem sucesso, use transferir_para_humano(setor="suporte", motivo="cliente não localizado no sistema").
    - Encontrado → responda "Um momento por favor" e em seguida "Como posso ajudar?". Se o cadastro tiver MAIS DE UM contrato, liste os planos e PERGUNTE qual o cliente deseja antes de gerar 2ª via/PIX. Nas ferramentas do SGP, passe o *cpfcnpj* do cliente OU o *contratoId EXATO* retornado por consultar_cliente — NUNCA invente um número de contrato.
 5. INTENÇÃO (interprete a mensagem do cliente):
-   - FINANCEIRO / 2ª via / pagamento: se o cliente quer pagar ou pedir boleto, use faturas_em_aberto e segunda_via para enviar o link de pagamento e a linha digitável; se ele quiser PIX, use gerar_pix. Se o cliente ENVIAR um COMPROVANTE de pagamento (imagem), você CONSEGUE LER a imagem. Faça a TRIAGEM assim: (1) leia *valor*, *nome/CNPJ do destino*, *data* e *ID da transação*; (2) confira se o DESTINO é da empresa — vale se o nome for *Seza e Cruz Ltda* (ou *MVF NETWORK*) ou se o CNPJ começar com a raiz *07861662* (as filiais e a chave PIX de Nova Canaã são todas dessa empresa); (3) confronte o VALOR com o que ele deve (use faturas_em_aberto); (4) responda "Recebemos seu comprovante. Muito obrigado!" e chame registrar_comprovante com o que você leu; (5) SE o destino confere E o valor bate → chame liberacao_confianca(contrato) para religar o acesso na hora e diga "Já liberei seu acesso por confiança! ✅ O financeiro vai confirmar o pagamento."; se NÃO conferir (destino errado, valor menor que o devido ou comprovante antigo) → NÃO libere; (6) SEMPRE transfira ao financeiro com transferir_para_humano(setor="financeiro") informando no motivo o resultado da conferência (ex.: "comprovante R$ 60,00 de 15/07 — destino confere — bate com a fatura — LIBERADO por confiança" OU "ATENÇÃO: valor não confere (pagou R$ 50, deve R$ 61,26) — NÃO liberado"). REGRA DURA: a liberação por confiança NÃO dá baixa na fatura — NUNCA diga que o pagamento foi baixado/quitado nem que a fatura está paga; a fatura segue EM ABERTO até o financeiro confirmar.
+   - FINANCEIRO / 2ª via / pagamento: se o cliente quer pagar ou pedir boleto, use faturas_em_aberto e segunda_via para enviar o link de pagamento e a linha digitável; se ele quiser PIX, use gerar_pix. Se o cliente ENVIAR um COMPROVANTE de pagamento (imagem), você CONSEGUE LER a imagem. Faça a TRIAGEM assim: (1) leia *valor*, *nome/CNPJ do destino*, *data* e *ID da transação*; (2) confira se o DESTINO é da empresa — vale se o nome for *Seza e Cruz Ltda* (ou *MVF NETWORK*) ou se o CNPJ começar com a raiz *07861662* (as filiais e a chave PIX de Nova Canaã são todas dessa empresa); (3) confronte o VALOR com o que ele deve (use faturas_em_aberto). REGRA DO VALOR: o valor CONFERE se o pago for MAIOR OU IGUAL ao da fatura mais antiga em aberto — pagar A MAIS (multa, juros, arredondamento) é NORMAL e CONFERE; só NÃO confere se pagar MENOS que a fatura. Ex.: fatura R$ 60,00 com multa/juros R$ 1,30 e pagamento de R$ 61,30 → CONFERE e LIBERA; (4) responda "Recebemos seu comprovante. Muito obrigado!" e chame registrar_comprovante com o que você leu — o sistema RECONFERE o valor automaticamente e a resposta da ferramenta te diz o veredito final: OBEDEÇA essa instrução (ela corrige qualquer erro de conta); (5) SE o destino confere E o valor confere → chame liberacao_confianca(contrato) para religar o acesso na hora e diga "Já liberei seu acesso por confiança! ✅ O financeiro vai confirmar o pagamento."; se NÃO conferir (destino errado, pago MENOR que a fatura ou comprovante antigo) → NÃO libere; (6) SEMPRE transfira ao financeiro com transferir_para_humano(setor="financeiro") informando no motivo o resultado da conferência (ex.: "comprovante R$ 60,00 de 15/07 — destino confere — bate com a fatura — LIBERADO por confiança" OU "ATENÇÃO: valor não confere (pagou R$ 50, deve R$ 61,26) — NÃO liberado"). REGRA DURA: a liberação por confiança NÃO dá baixa na fatura — NUNCA diga que o pagamento foi baixado/quitado nem que a fatura está paga; a fatura segue EM ABERTO até o financeiro confirmar.
    - SUPORTE TÉCNICO (internet ruim/sem conexão): faça a TRIAGEM você mesmo, conversando:
        a) "A sua conexão está com problema apenas no *cabo*, apenas no *Wi-Fi* ou nos *dois*?"
        b) Se Wi-Fi: pergunte se está longe do roteador, se há paredes/móveis no caminho, se o roteador está dentro de rack/atrás de móvel.
@@ -461,12 +461,61 @@ async function sgpListForOrg(db: AiTurnContext["db"], orgId: string): Promise<{ 
   }
 }
 
+/**
+ * Conferência DETERMINÍSTICA do valor do comprovante contra a fatura mais
+ * antiga em aberto no SGP. A IA erra aritmética (ex.: pagou R$ 61,30 numa
+ * fatura de R$ 60,00 + R$ 1,30 de multa e ela marcou "não bate" e não
+ * liberou). Regra do negócio: pago ≥ valor da fatura CONFERE — pagar A MAIS
+ * (multa/juros/arredondamento) é normal. Sobrescreve args.valor_confere e
+ * devolve o texto do veredito (ou null se não deu pra verificar).
+ */
+async function conferirValorComprovante(
+  args: Record<string, unknown>,
+  sgpList: { id: string; client: SgpClient }[],
+  defaultSgpId: string | undefined,
+  memo: SgpMemo,
+): Promise<string | null> {
+  const pago = typeof args.valor === "number" ? args.valor : Number(String(args.valor ?? "").replace(",", "."));
+  if (!isFinite(pago) || pago <= 0 || !sgpList.length) return null;
+  const sgp: SgpClient | undefined =
+    (memo.integrationId && sgpList.find((s) => s.id === memo.integrationId)?.client) ||
+    sgpList.find((s) => s.id === defaultSgpId)?.client ||
+    sgpList[0]?.client;
+  if (!sgp) return null;
+  const ids = memo.contratos.map((c) => c.id);
+  const by = ids.length === 1 ? { contrato: ids[0] } : memo.cpf ? { cpfcnpj: memo.cpf } : ids.length ? { contrato: ids[0] } : null;
+  if (!by) return null;
+  const titulos = await sgp.titulosEmAberto(by).catch(() => []);
+  const devido = titulos[0]?.valor; // mais antiga em aberto (já ordenada)
+  if (typeof devido !== "number" || devido <= 0) return null;
+  const confere = pago + 0.01 >= devido;
+  args.valor_confere = confere;
+  return confere
+    ? `Conferência automática do sistema: pago R$ ${pago.toFixed(2)} ≥ fatura mais antiga R$ ${devido.toFixed(2)} → VALOR CONFERE (pagar a mais por multa/juros é normal).`
+    : `Conferência automática do sistema: pago R$ ${pago.toFixed(2)} < fatura mais antiga R$ ${devido.toFixed(2)} → valor NÃO confere.`;
+}
+
 /** Executa uma ferramenta do SGP e devolve um resultado serializável p/ o modelo.
  *  `sgpList` = todas as contas SGP da org; `defaultSgpId` = a do fluxo/automação.
  *  O SGP "ativo" é aquele onde o cliente foi localizado (memo.integrationId). */
 async function executeTool(name: string, args: Record<string, unknown>, sgpList: { id: string; client: SgpClient }[], defaultSgpId: string | undefined, memo: SgpMemo): Promise<unknown> {
-  if (name === "transferir_para_humano" || name === "finalizar_atendimento" || name === "registrar_comprovante") {
+  if (name === "transferir_para_humano" || name === "finalizar_atendimento") {
     return { ok: true };
+  }
+  if (name === "registrar_comprovante") {
+    // O veredito determinístico (calculado antes da nota) manda no fluxo:
+    // a IA recebe uma instrução explícita do que fazer em seguida.
+    const vc = args.valor_confere;
+    return {
+      ok: true,
+      valor_confere_final: vc ?? null,
+      instrucao:
+        vc === true
+          ? "O valor CONFERE (verificação automática do sistema — pagar multa/juros a mais é normal e esperado). Se o destino também confere, chame liberacao_confianca AGORA e avise o cliente da liberação."
+          : vc === false
+            ? "O valor NÃO confere (pago MENOR que a fatura mais antiga). NÃO libere por confiança; transfira ao financeiro explicando."
+            : "Não foi possível verificar automaticamente; use seu julgamento conservador.",
+    };
   }
   if (!sgpList.length) {
     return { erro: "Integração SGP não configurada. Não é possível consultar o sistema." };
@@ -874,6 +923,10 @@ export async function runAiTurn(ctx: AiTurnContext): Promise<AiTurnResult> {
           summary = typeof args.resumo === "string" ? args.resumo : undefined;
         }
         if (tc.function.name === "registrar_comprovante") {
+          // Conferência DETERMINÍSTICA do valor (a IA erra aritmética): compara
+          // o pago com a fatura mais antiga no SGP e SOBRESCREVE valor_confere.
+          const veredito = await conferirValorComprovante(args, sgpList, defaultSgpId, sgpMemo).catch(() => null);
+          if (veredito) args.observacao = [args.observacao, veredito].filter(Boolean).join(" | ");
           // Grava a leitura do comprovante como NOTA INTERNA (o financeiro vê no
           // atendimento). Antes essa tool não guardava nada.
           const f = (k: string) => (args[k] == null || args[k] === "" ? "—" : String(args[k]));
