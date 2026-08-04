@@ -528,7 +528,10 @@ export function Composer({
           </div>
         )}
 
-        <div className="relative">
+        {/* Gravando: esconde emoji/anexo/modelos/textarea — a barra de gravação
+            ocupa a linha toda (antes o textarea era espremido a ~1 coluna e o
+            botão de ENVIAR sumia da tela em monitores menores). */}
+        {!recording && <div className="relative">
           <button
             onClick={() => { setEmojiOpen((v) => !v); setAttachMenu(false); }}
             disabled={disabled || sending}
@@ -538,8 +541,8 @@ export function Composer({
             <Smile size={18} />
           </button>
           {emojiOpen && <EmojiPicker onPick={(e) => setText((t) => t + e)} onClose={() => setEmojiOpen(false)} />}
-        </div>
-        <div className="relative">
+        </div>}
+        {!recording && <div className="relative">
           <button
             onClick={() => setAttachMenu((v) => !v)}
             disabled={disabled || sending || internalMode}
@@ -571,9 +574,9 @@ export function Composer({
               </div>
             </>
           )}
-        </div>
+        </div>}
 
-        {(quickReplies?.length ?? 0) > 0 && (
+        {!recording && (quickReplies?.length ?? 0) > 0 && (
           <div className="relative">
             <button
               onClick={() => { setQrOpen((v) => !v); setAttachMenu(false); setEmojiOpen(false); }}
@@ -620,7 +623,7 @@ export function Composer({
           </div>
         )}
 
-        <textarea
+        {!recording && <textarea
           ref={taRef}
           value={text}
           onChange={(e) => {
@@ -682,7 +685,7 @@ export function Composer({
             ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
           }}
           className="min-h-[42px] max-h-[200px] flex-1 resize-none rounded-xl border border-border px-3 py-2 text-sm outline-none focus:border-brand disabled:bg-gray-50"
-        />
+        />}
 
         {text.trim() || internalMode ? (
           <button
@@ -696,7 +699,7 @@ export function Composer({
             {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
           </button>
         ) : recording ? (
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
             <button
               onClick={cancelRecord}
               disabled={disabled || sending}
@@ -705,7 +708,7 @@ export function Composer({
             >
               <Trash2 size={18} />
             </button>
-            <span className="flex items-center gap-1.5 text-xs font-medium text-danger" title="Tempo gravado e nível do microfone">
+            <span className="flex flex-1 items-center justify-center gap-1.5 text-xs font-medium text-danger" title="Tempo gravado e nível do microfone">
               <span className="h-2 w-2 animate-pulse rounded-full bg-danger" />
               <span className="tnum tabular-nums">{fmtRec(recSecs)}</span>
               {/* Medidor: se ficar sempre vazio, o microfone não está captando. */}

@@ -31,16 +31,31 @@ export function VersionWatcher() {
   useEffect(() => {
     let cancel = false;
     const busy = () => document.body.dataset.appBusy === "1";
+    const typing = () =>
+      Array.from(document.querySelectorAll("textarea, input[type=text], input:not([type])"))
+        .some((el) => (el as HTMLInputElement | HTMLTextAreaElement).value?.trim());
     const markStale = () => {
       // Nunca recarrega no meio de algo (gravando áudio / atendimento aberto).
       if (busy()) { setStale(true); return; }
       // Aba em segundo plano → recarrega sozinha (não há nada a perder).
       if (document.hidden) { window.location.reload(); return; }
-      // Aba ATIVA: nunca força. Mostra o aviso e deixa o atendente escolher a
-      // hora — recarregar por baixo do atendimento em uso é pior que o bundle
-      // velho (fechava modal, cortava gravação, perdia o que estava na tela).
+      // Aba ATIVA: mostra o aviso. O reload automático acontece depois, num
+      // momento OCIOSO (ver intervalo abaixo) — na prática os atendentes
+      // ignoravam o botão e ficavam no bundle velho até tudo quebrar
+      // ("não consigo enviar PIX/áudio" após deploys).
       setStale(true);
     };
+    // Desatualizado + ocioso (sem digitar, sem gravar) → aplica a atualização
+    // sozinho. Checa a cada 20s; só age passado 1 min do aviso.
+    let staleSince = 0;
+    const idleTick = () => {
+      if (!staleRef.current) { staleSince = 0; return; }
+      if (!staleSince) staleSince = Date.now();
+      if (Date.now() - staleSince < 60_000) return;
+      if (busy() || typing()) return;
+      window.location.reload();
+    };
+    const idleTimer = setInterval(idleTick, 20_000);
     const check = async () => {
       try {
         const r = await fetch("/api/version", { cache: "no-store" });
@@ -62,7 +77,7 @@ export function VersionWatcher() {
     const t = setInterval(check, 60000); // a cada 1 min
     document.addEventListener("visibilitychange", onVis);
     check();
-    return () => { cancel = true; clearInterval(t); document.removeEventListener("visibilitychange", onVis); };
+    return () => { cancel = true; clearInterval(t); clearInterval(idleTimer); document.removeEventListener("visibilitychange", onVis); };
   }, []);
 
   if (!stale) return null;
