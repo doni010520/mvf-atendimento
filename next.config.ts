@@ -42,6 +42,15 @@ const nextConfig: NextConfig = {
   // Saída standalone: imagem Docker pequena e self-contained (server.js).
   output: "standalone",
 
+  experimental: {
+    serverActions: {
+      // Padrão do Next é 1MB — bloqueava QUALQUER vídeo (e fotos grandes) no
+      // envio de mídia do atendimento, silenciosamente. 64mb cobre vídeos de
+      // celular; o teto real de vídeo da Meta (16MB) é avisado no composer.
+      bodySizeLimit: "64mb",
+    },
+  },
+
   async headers() {
     return [
       {

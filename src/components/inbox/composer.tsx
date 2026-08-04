@@ -128,6 +128,17 @@ export function Composer({
   useEffect(() => { if (pendingFile) captionRef.current?.focus(); }, [pendingFile]);
 
   function stageFile(file: File, asSticker = false) {
+    // Limites de tamanho ANTES do upload (falha clara em vez de sumiço):
+    // 64MB = teto do transporte (bodySizeLimit); 16MB = teto de VÍDEO da Meta.
+    const mb = file.size / (1024 * 1024);
+    if (mb > 64) {
+      alert(`Arquivo muito grande (${mb.toFixed(0)}MB). O máximo é 64MB.`);
+      return;
+    }
+    if (isMeta && file.type.startsWith("video/") && mb > 16) {
+      alert(`Vídeo de ${mb.toFixed(0)}MB — a API oficial do WhatsApp aceita vídeos de até 16MB. Comprima o vídeo ou envie um trecho menor.`);
+      return;
+    }
     setPendingFile(file);
     setPendingCaption("");
     setPendingSticker(asSticker);
