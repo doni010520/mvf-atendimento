@@ -447,18 +447,22 @@ export function Composer({
               <a href="/mensagens/templates" className="text-brand underline">Mensagens → Templates</a>.
             </p>
           ) : !tplPick ? (
-            <div className="flex flex-wrap gap-2">
+            // max-h + scroll: com dezenas de templates a lista engolia o chat
+            // inteiro. E o NOME truncado (não pode vazar por cima dos vizinhos
+            // — nomes de template são compridos).
+            <div className="flex max-h-64 flex-wrap gap-2 overflow-y-auto pr-1">
               {visibleTemplates.map((t) => (
                 <button
                   key={`${t.name}-${t.language}`}
                   onClick={() => { setTplPick(t); setTplParams(Array(t.varCount).fill("")); }}
-                  className="flex w-60 flex-col items-start gap-0.5 rounded-lg border border-border px-2.5 py-2 text-left transition hover:border-brand"
+                  className="flex w-60 flex-col items-start gap-0.5 overflow-hidden rounded-lg border border-border px-2.5 py-2 text-left transition hover:border-brand"
                   title={t.name}
                 >
-                  <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-ink-soft">
-                    <LayoutTemplate size={11} /> {t.name}
+                  <span className="flex w-full min-w-0 items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-ink-soft">
+                    <LayoutTemplate size={11} className="shrink-0" />
+                    <span className="truncate">{t.name}</span>
                   </span>
-                  <span className="line-clamp-2 text-xs text-ink">{t.bodyText || "(modelo sem corpo de texto)"}</span>
+                  <span className="line-clamp-2 w-full text-xs text-ink">{t.bodyText || "(modelo sem corpo de texto)"}</span>
                 </button>
               ))}
             </div>
