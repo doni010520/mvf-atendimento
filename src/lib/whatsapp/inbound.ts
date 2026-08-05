@@ -564,15 +564,66 @@ export async function persistMetaStatuses(
       // por janela, reenviamos automaticamente por um canal uazapi (sem
       // restrição de janela).
       if (u.errorCode === 131047 && msg.sender_type === "system" && msg.content_type === "text" && msg.body) {
-        await resendSystemViaUazapi(db, msg as { id: string; organization_id: string; conversation_id: string; body: string }).catch((e) =>
-          console.error("fallback uazapi", e),
-        );
+        const m = msg as { id: string; organization_id: string; conversation_id: string; body: string };
+        // 1º: TEMPLATE pela MESMA linha oficial (o aviso continua saindo pelo
+        // número da Central — requisito da operação). Só se o template falhar
+        // (ainda não aprovado etc.) cai pro uazapi.
+        const viaTemplate = await resendSystemAsTemplate(db, m).catch(() => false);
+        if (!viaTemplate) {
+          await resendSystemViaUazapi(db, m).catch((e) => console.error("fallback uazapi", e));
+        }
       }
       continue;
     }
     if ((STATUS_RANK[u.status] ?? 0) > (STATUS_RANK[msg.status] ?? 0)) {
       await db.from("messages").update({ status: u.status }).eq("id", msg.id);
     }
+  }
+}
+
+/**
+ * Reenvia um aviso de sistema como TEMPLATE (HSM) pela MESMA linha oficial —
+ * fora da janela de 24h a Meta só aceita template aprovado, e a operação quer
+ * os avisos SEMPRE saindo pelo número da Central. Usa o template
+ * `aviso_mvf_sgp` ("Mensagem automática MVF NET…: {{1}}"). Retorna true se
+ * conseguiu; false para o chamador cair no fallback uazapi.
+ */
+async function resendSystemAsTemplate(
+  db: ReturnType<typeof createServiceClient>,
+  msg: { id: string; organization_id: string; conversation_id: string; body: string },
+): Promise<boolean> {
+  const { data: conv } = await db.from("conversations").select("contact_id, channel_id").eq("id", msg.conversation_id).maybeSingle();
+  if (!conv?.contact_id || !conv?.channel_id) return false;
+  const [{ data: contact }, { data: channel }] = await Promise.all([
+    db.from("contacts").select("phone").eq("id", conv.contact_id).maybeSingle(),
+    db.from("channels").select("*").eq("id", conv.channel_id).maybeSingle(),
+  ]);
+  if (!contact?.phone || !channel || (channel as Channel).type !== "meta_cloud") return false;
+  const provider = getProvider(channel as Channel);
+  if (!provider.sendTemplate) return false;
+  // Parâmetro de template não aceita quebras de linha nem 4+ espaços seguidos.
+  const param = msg.body.replace(/\s+/g, " ").trim().slice(0, 900);
+  if (!param) return false;
+  try {
+    const res = await provider.sendTemplate({
+      to: contact.phone,
+      name: "aviso_mvf_sgp",
+      language: "pt_BR",
+      components: [{ type: "body", parameters: [{ type: "text", text: param }] }],
+    });
+    await db.from("messages").insert({
+      organization_id: msg.organization_id, conversation_id: msg.conversation_id,
+      direction: "out", sender_type: "system", content_type: "text",
+      body: `Mensagem automática MVF NET sobre a sua conta:\n\n${param}\n\nEm caso de dúvida, é só responder esta mensagem.`,
+      external_id: res.externalId ?? null, status: "sent",
+    });
+    await db.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", msg.conversation_id);
+    void logEvent("info", "sgp-sms", `janela 24h fechada → reenviado como TEMPLATE pela ${(channel as Channel).name}`, { originalMessageId: msg.id }, msg.organization_id);
+    return true;
+  } catch (e) {
+    // Template ainda não aprovado (ou outro erro) → o chamador cai no uazapi.
+    void logEvent("warn", "sgp-sms", `template aviso_mvf_sgp falhou (${(e as Error)?.message?.slice(0, 120)}) — caindo para uazapi`, { originalMessageId: msg.id }, msg.organization_id);
+    return false;
   }
 }
 
