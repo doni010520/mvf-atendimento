@@ -606,19 +606,30 @@ async function resendSystemAsTemplate(
   const nome = (contact.name ?? "").trim().split(/\s+/)[0] || "cliente";
   if (!texto) return false;
   // Tenta em ordem: (1) aviso_mvf_sgp — genérico, carrega o TEXTO REAL do SGP
-  // (aguardando aprovação da Meta); (2) aviso_p__s_vencimento_chat_6935 — o
-  // template do Chatmix, JÁ APROVADO (texto fixo de vencimento; param = nome).
+  // (aguardando aprovação da Meta); (2) o template do Chatmix JÁ APROVADO que
+  // CASA com o conteúdo: aviso com LINK de contrato → envio_de_contrato (o
+  // link vai no {{1}}); senão → aviso de vencimento (param = nome). Sem isso,
+  // um "SMS" de contrato fora da janela viraria um aviso de fatura errado.
+  const url = texto.match(/https?:\/\/\S+/)?.[0] ?? null;
+  const isContrato = !!url && /contrat|aceite|termo/i.test(texto + url);
+  const chatmixTpl = isContrato
+    ? {
+        name: "envio_de_contrato_chat_7837",
+        param: url!,
+        render: `Conforme combinado, segue o link para visualização e aceite do seu contrato:\n${url}\n\nQualquer dúvida, fico à disposição.`,
+      }
+    : {
+        name: "aviso_p__s_vencimento_chat_6935",
+        param: nome,
+        render: `Mensagem automática - MVF NET\nOlá ${nome}, informamos o vencimento da sua fatura. 5 dias após o vencimento a suspensão do serviço de internet é automática pelo sistema.\nSe o pagamento já foi efetuado favor desconsiderar essa mensagem.\nA MVF NET agradece.`,
+      };
   const candidatos: { name: string; param: string; render: string }[] = [
     {
       name: "aviso_mvf_sgp",
       param: texto,
       render: `Mensagem automática MVF NET sobre a sua conta:\n\n${texto}\n\nEm caso de dúvida, é só responder esta mensagem.`,
     },
-    {
-      name: "aviso_p__s_vencimento_chat_6935",
-      param: nome,
-      render: `Mensagem automática - MVF NET\nOlá ${nome}, informamos o vencimento da sua fatura. 5 dias após o vencimento a suspensão do serviço de internet é automática pelo sistema.\nSe o pagamento já foi efetuado favor desconsiderar essa mensagem.\nA MVF NET agradece.`,
-    },
+    chatmixTpl,
   ];
   for (const c of candidatos) {
     try {
