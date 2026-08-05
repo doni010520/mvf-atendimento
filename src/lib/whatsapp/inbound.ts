@@ -595,36 +595,53 @@ async function resendSystemAsTemplate(
   const { data: conv } = await db.from("conversations").select("contact_id, channel_id").eq("id", msg.conversation_id).maybeSingle();
   if (!conv?.contact_id || !conv?.channel_id) return false;
   const [{ data: contact }, { data: channel }] = await Promise.all([
-    db.from("contacts").select("phone").eq("id", conv.contact_id).maybeSingle(),
+    db.from("contacts").select("phone, name").eq("id", conv.contact_id).maybeSingle(),
     db.from("channels").select("*").eq("id", conv.channel_id).maybeSingle(),
   ]);
   if (!contact?.phone || !channel || (channel as Channel).type !== "meta_cloud") return false;
   const provider = getProvider(channel as Channel);
   if (!provider.sendTemplate) return false;
   // Parâmetro de template não aceita quebras de linha nem 4+ espaços seguidos.
-  const param = msg.body.replace(/\s+/g, " ").trim().slice(0, 900);
-  if (!param) return false;
-  try {
-    const res = await provider.sendTemplate({
-      to: contact.phone,
+  const texto = msg.body.replace(/\s+/g, " ").trim().slice(0, 900);
+  const nome = (contact.name ?? "").trim().split(/\s+/)[0] || "cliente";
+  if (!texto) return false;
+  // Tenta em ordem: (1) aviso_mvf_sgp — genérico, carrega o TEXTO REAL do SGP
+  // (aguardando aprovação da Meta); (2) aviso_p__s_vencimento_chat_6935 — o
+  // template do Chatmix, JÁ APROVADO (texto fixo de vencimento; param = nome).
+  const candidatos: { name: string; param: string; render: string }[] = [
+    {
       name: "aviso_mvf_sgp",
-      language: "pt_BR",
-      components: [{ type: "body", parameters: [{ type: "text", text: param }] }],
-    });
-    await db.from("messages").insert({
-      organization_id: msg.organization_id, conversation_id: msg.conversation_id,
-      direction: "out", sender_type: "system", content_type: "text",
-      body: `Mensagem automática MVF NET sobre a sua conta:\n\n${param}\n\nEm caso de dúvida, é só responder esta mensagem.`,
-      external_id: res.externalId ?? null, status: "sent",
-    });
-    await db.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", msg.conversation_id);
-    void logEvent("info", "sgp-sms", `janela 24h fechada → reenviado como TEMPLATE pela ${(channel as Channel).name}`, { originalMessageId: msg.id }, msg.organization_id);
-    return true;
-  } catch (e) {
-    // Template ainda não aprovado (ou outro erro) → o chamador cai no uazapi.
-    void logEvent("warn", "sgp-sms", `template aviso_mvf_sgp falhou (${(e as Error)?.message?.slice(0, 120)}) — caindo para uazapi`, { originalMessageId: msg.id }, msg.organization_id);
-    return false;
+      param: texto,
+      render: `Mensagem automática MVF NET sobre a sua conta:\n\n${texto}\n\nEm caso de dúvida, é só responder esta mensagem.`,
+    },
+    {
+      name: "aviso_p__s_vencimento_chat_6935",
+      param: nome,
+      render: `Mensagem automática - MVF NET\nOlá ${nome}, informamos o vencimento da sua fatura. 5 dias após o vencimento a suspensão do serviço de internet é automática pelo sistema.\nSe o pagamento já foi efetuado favor desconsiderar essa mensagem.\nA MVF NET agradece.`,
+    },
+  ];
+  for (const c of candidatos) {
+    try {
+      const res = await provider.sendTemplate({
+        to: contact.phone,
+        name: c.name,
+        language: "pt_BR",
+        components: [{ type: "body", parameters: [{ type: "text", text: c.param }] }],
+      });
+      await db.from("messages").insert({
+        organization_id: msg.organization_id, conversation_id: msg.conversation_id,
+        direction: "out", sender_type: "system", content_type: "text",
+        body: c.render,
+        external_id: res.externalId ?? null, status: "sent",
+      });
+      await db.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", msg.conversation_id);
+      void logEvent("info", "sgp-sms", `janela 24h fechada → reenviado como TEMPLATE (${c.name}) pela ${(channel as Channel).name}`, { originalMessageId: msg.id, template: c.name }, msg.organization_id);
+      return true;
+    } catch (e) {
+      void logEvent("warn", "sgp-sms", `template ${c.name} falhou (${(e as Error)?.message?.slice(0, 100)}) — tentando próximo`, { originalMessageId: msg.id }, msg.organization_id);
+    }
   }
+  return false;
 }
 
 /**
