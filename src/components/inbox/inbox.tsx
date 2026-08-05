@@ -52,6 +52,7 @@ import {
   toggleMute,
   setConversationAi,
   fetchMessages,
+  fetchConversationById,
   fetchConversations,
   fetchChannelStatuses,
   openDirectConversation,
@@ -107,6 +108,11 @@ export function Inbox({
   // Conversa-rascunho transitória (ao clicar num participante): só persiste ao digitar/enviar.
   const [draft, setDraft] = useState<ConversationOverview | null>(null);
   const [draftRealId, setDraftRealId] = useState<string | null>(null);
+  // Conversa aberta por deep-link (?c=…) que NÃO está na lista carregada —
+  // ex.: atendimento antigo do histórico do contato (a lista respeita a
+  // visibilidade por atendente, mas ler o histórico do cliente é permitido).
+  // Vive fora de `conversations` para o polling não a apagar.
+  const [extraConv, setExtraConv] = useState<ConversationOverview | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [closing, setClosing] = useState(false);
   const [transferring, setTransferring] = useState(false);
@@ -142,7 +148,9 @@ export function Inbox({
   }
 
   const selected =
-    conversations.find((c) => c.id === selectedId) ?? (selectedId === DRAFT_ID ? draft : null);
+    conversations.find((c) => c.id === selectedId) ??
+    (extraConv && extraConv.id === selectedId ? extraConv : null) ??
+    (selectedId === DRAFT_ID ? draft : null);
   const messages = selectedId ? messagesByConv[selectedId] ?? [] : [];
 
   // Carrega mensagens ao selecionar (se ainda não estiverem em cache) e marca como lida.
@@ -150,6 +158,12 @@ export function Inbox({
     setSelectedId(id);
     // Limpa reply-private quando o usuário muda de conversa manualmente
     setPrivateReplyMsg(null);
+    // Fora da lista (deep-link do histórico p/ atendimento antigo)? Busca avulsa.
+    if (id !== DRAFT_ID && !conversations.some((c) => c.id === id)) {
+      fetchConversationById(id)
+        .then((conv) => { if (conv) setExtraConv(conv as ConversationOverview); })
+        .catch(() => {});
+    }
     if (!messagesByConv[id]) {
       const msgs = await fetchMessages(id);
       setMessagesByConv((prev) => ({ ...prev, [id]: msgs }));

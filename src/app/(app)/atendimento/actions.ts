@@ -20,6 +20,23 @@ export async function fetchConversations() {
   return getConversations();
 }
 
+/**
+ * Busca UMA conversa por id, fora da lista. Usado pelo deep-link (?c=…) do
+ * histórico "Atendimentos anteriores": para o atendente, conversas antigas do
+ * contato (encerradas/de outro colega) não vêm na lista por causa da regra de
+ * visibilidade — mas ler o HISTÓRICO de um cliente que ele atende é legítimo.
+ */
+export async function fetchConversationById(id: string) {
+  if (isPreview()) return null;
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("conversation_overview")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  return data ?? null;
+}
+
 /** Retorna status dos canais (para mostrar banner de desconectado). */
 export async function fetchChannelStatuses(): Promise<{ id: string; name: string; status: string }[]> {
   if (isPreview()) return [];
