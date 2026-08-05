@@ -48,14 +48,33 @@ type Db = ReturnType<typeof createServiceClient>;
 async function deliverVia(db: Db, channel: Channel, phone: string, msg: string): Promise<{ ok: boolean; erro?: string }> {
   const org = channel.organization_id as string;
   try {
-    const { data: contact } = await db
+    // Nono dígito: o mesmo número pode existir com ou sem o "9" (o wa_id do
+    // WhatsApp costuma vir SEM). Reaproveita o contato existente em qualquer
+    // forma — e envia para o telefone DELE (que comprovadamente entrega) — em
+    // vez de criar um contato duplicado.
+    const alt = phone.startsWith("55") && phone.length === 13 ? phone.slice(0, 4) + phone.slice(5)
+      : phone.startsWith("55") && phone.length === 12 ? phone.slice(0, 4) + "9" + phone.slice(4) : null;
+    const { data: found } = await db
       .from("contacts")
-      .upsert(
-        { organization_id: org, phone, is_group: false },
-        { onConflict: "organization_id,phone", ignoreDuplicates: false },
-      )
-      .select("id")
-      .single();
+      .select("id, phone")
+      .eq("organization_id", org)
+      .in("phone", alt ? [phone, alt] : [phone])
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    let contact = found;
+    if (contact?.phone) phone = contact.phone;
+    if (!contact) {
+      const { data: created } = await db
+        .from("contacts")
+        .upsert(
+          { organization_id: org, phone, is_group: false },
+          { onConflict: "organization_id,phone", ignoreDuplicates: false },
+        )
+        .select("id, phone")
+        .single();
+      contact = created;
+    }
     if (!contact) return { ok: false, erro: "contato não criado" };
 
     let { data: conv } = await db

@@ -542,7 +542,7 @@ export async function persistMetaStatuses(
     const tail = u.externalId.includes(":") ? u.externalId.split(":").pop()! : u.externalId;
     const { data: msg } = await db
       .from("messages")
-      .select("id, status, content_type, organization_id")
+      .select("id, status, content_type, organization_id, conversation_id, sender_type, body")
       .eq("direction", "out")
       .or(`external_id.eq.${u.externalId},external_id.ilike.%${tail}`)
       .order("created_at", { ascending: false })
@@ -558,12 +558,99 @@ export async function persistMetaStatuses(
         { messageId: msg.id, contentType: msg.content_type, errorCode: u.errorCode, errorTitle: u.errorTitle, errorDetails: u.errorDetails },
         msg.organization_id,
       );
+      // FALLBACK ASSÍNCRONO (avisos do SGP/sistema): a Meta ACEITA o envio na
+      // hora e só reporta o 131047 (janela de 24h) depois, via webhook — então
+      // um fallback síncrono nunca dispara. Quando um aviso do sistema falha
+      // por janela, reenviamos automaticamente por um canal uazapi (sem
+      // restrição de janela).
+      if (u.errorCode === 131047 && msg.sender_type === "system" && msg.content_type === "text" && msg.body) {
+        await resendSystemViaUazapi(db, msg as { id: string; organization_id: string; conversation_id: string; body: string }).catch((e) =>
+          console.error("fallback uazapi", e),
+        );
+      }
       continue;
     }
     if ((STATUS_RANK[u.status] ?? 0) > (STATUS_RANK[msg.status] ?? 0)) {
       await db.from("messages").update({ status: u.status }).eq("id", msg.id);
     }
   }
+}
+
+/**
+ * Reenvia um aviso de sistema (ex.: cobrança do SGP) por um canal uazapi
+ * quando a Meta recusou por janela de 24h. Dedup: não reenvia se o MESMO
+ * texto já foi mandado ao contato por um canal uazapi nos últimos 10 min.
+ */
+async function resendSystemViaUazapi(
+  db: ReturnType<typeof createServiceClient>,
+  msg: { id: string; organization_id: string; conversation_id: string; body: string },
+) {
+  const { data: conv } = await db.from("conversations").select("contact_id").eq("id", msg.conversation_id).maybeSingle();
+  if (!conv?.contact_id) return;
+  const { data: contact } = await db.from("contacts").select("id, phone").eq("id", conv.contact_id).maybeSingle();
+  if (!contact?.phone) return;
+
+  const { data: fallbacks } = await db
+    .from("channels").select("*")
+    .eq("organization_id", msg.organization_id).eq("type", "uazapi").eq("status", "connected")
+    .limit(3);
+  if (!fallbacks?.length) return;
+
+  // Contato pode existir com/sem o 9º dígito — considera as duas formas.
+  const p = contact.phone;
+  const alt = p.startsWith("55") && p.length === 13 ? p.slice(0, 4) + p.slice(5)
+    : p.startsWith("55") && p.length === 12 ? p.slice(0, 4) + "9" + p.slice(4) : null;
+  const phones = alt ? [p, alt] : [p];
+  const { data: sameContacts } = await db
+    .from("contacts").select("id").eq("organization_id", msg.organization_id).in("phone", phones);
+  const contactIds = (sameContacts ?? []).map((c: { id: string }) => c.id);
+
+  // Dedup: mesmo texto já reenviado há pouco?
+  const cutoff = new Date(Date.now() - 10 * 60_000).toISOString();
+  const { data: recent } = await db
+    .from("messages")
+    .select("id, conversation_id")
+    .eq("organization_id", msg.organization_id)
+    .eq("direction", "out").eq("sender_type", "system").eq("body", msg.body)
+    .gte("created_at", cutoff)
+    .neq("id", msg.id)
+    .limit(10);
+  if (recent?.length) {
+    const convIds = [...new Set(recent.map((r: { conversation_id: string }) => r.conversation_id))];
+    const { data: rc } = await db.from("conversations").select("id, channel_id, contact_id").in("id", convIds);
+    const { data: chs } = await db.from("channels").select("id, type").eq("type", "uazapi");
+    const uazapiIds = new Set((chs ?? []).map((c: { id: string }) => c.id));
+    if ((rc ?? []).some((r: { channel_id: string; contact_id: string }) => uazapiIds.has(r.channel_id) && contactIds.includes(r.contact_id))) return;
+  }
+
+  for (const ch of fallbacks as Channel[]) {
+    try {
+      let { data: fconv } = await db
+        .from("conversations").select("id")
+        .eq("channel_id", ch.id).in("contact_id", contactIds.length ? contactIds : [contact.id])
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (!fconv) {
+        const { data: created } = await db
+          .from("conversations")
+          .insert({ organization_id: msg.organization_id, channel_id: ch.id, contact_id: contact.id, status: "closed", ai_enabled: true })
+          .select("id").single();
+        fconv = created;
+      }
+      if (!fconv) continue;
+      const res = await getProvider(ch).sendText({ to: p, text: msg.body });
+      await db.from("messages").insert({
+        organization_id: msg.organization_id, conversation_id: fconv.id, direction: "out",
+        sender_type: "system", content_type: "text", body: msg.body,
+        external_id: res.externalId ?? null, status: "sent",
+      });
+      await db.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", fconv.id);
+      void logEvent("info", "sgp-sms", `janela 24h fechada na Meta → reenviado via ${ch.name}`, { originalMessageId: msg.id, channel: ch.name }, msg.organization_id);
+      return;
+    } catch (e) {
+      console.error("resendSystemViaUazapi", ch.name, (e as Error)?.message);
+    }
+  }
+  void logEvent("error", "sgp-sms", "janela 24h fechada e TODOS os fallbacks uazapi falharam", { originalMessageId: msg.id }, msg.organization_id);
 }
 
 type Reaction = { emoji: string; by: string };
