@@ -88,10 +88,31 @@ export async function getMessages(conversationId: string): Promise<Message[]> {
   noStore(); // sempre dados frescos (polling da inbox)
 
   const supabase = await createClient();
+  // HISTÓRICO COMPLETO do contato: cada atendimento é uma conversa NOVA
+  // (o inbound cria outra quando a anterior está encerrada), então limitar o
+  // thread à conversa atual escondia todo o passado do cliente — o atendente
+  // abria a conversa atribuída a ele e ela começava "do zero". Mesclamos as
+  // mensagens de TODAS as conversas do mesmo contato+canal, em ordem
+  // cronológica (últimas 600 — o teto implícito do PostgREST é 1000).
+  const { data: conv } = await supabase
+    .from("conversations")
+    .select("contact_id, channel_id")
+    .eq("id", conversationId)
+    .maybeSingle();
+  let ids: string[] = [conversationId];
+  if (conv?.contact_id && conv?.channel_id) {
+    const { data: siblings } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("contact_id", conv.contact_id)
+      .eq("channel_id", conv.channel_id);
+    if (siblings?.length) ids = siblings.map((s) => s.id);
+  }
   const { data } = await supabase
     .from("messages")
     .select("*")
-    .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: true });
-  return (data as Message[]) ?? [];
+    .in("conversation_id", ids)
+    .order("created_at", { ascending: false })
+    .limit(600);
+  return (((data as Message[]) ?? []) as Message[]).reverse();
 }
