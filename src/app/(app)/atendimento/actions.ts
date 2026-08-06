@@ -1461,7 +1461,12 @@ export async function sgpSendPix(conversationId: string, contrato: number): Prom
     .eq("active", true);
 
   const clients = ((integs ?? []) as { config: unknown }[])
-    .map((r) => { try { return sgpFromConfig(r.config); } catch { return null; } })
+    .map((r) => {
+      try {
+        const chave = (r.config as { pix_chave_manual?: string } | null)?.pix_chave_manual;
+        return { sgp: sgpFromConfig(r.config), pixChaveManual: typeof chave === "string" && chave.trim() ? chave.trim() : undefined };
+      } catch { return null; }
+    })
     .filter((c): c is NonNullable<typeof c> => !!c);
   if (!clients.length) return { ok: false, message: "Nenhum SGP configurado." };
 
@@ -1470,12 +1475,50 @@ export async function sgpSendPix(conversationId: string, contrato: number): Prom
   // descarta canceladas) — nunca de uma parcela futura.
   let codigoPix: string | null = null;
   let alvo: { fatura: number; valor?: number; vencimento?: string } | null = null;
-  for (const sgp of clients) {
+  let chaveManual: string | null = null;
+  for (const { sgp, pixChaveManual } of clients) {
     const titulos = await sgp.titulosEmAberto({ contrato }).catch(() => [] as Awaited<ReturnType<typeof sgp.titulosEmAberto>>);
     if (!titulos.length) continue;
     const t = titulos[0];
+    // Modo CHAVE MANUAL (ex.: Nova Canaã até regularizar SGP↔Asaas): não gera
+    // copia-e-cola; envia a CHAVE PIX para transferência.
+    if (pixChaveManual) { chaveManual = pixChaveManual; alvo = { fatura: t.fatura, valor: t.valor, vencimento: t.vencimento }; break; }
     const px = await sgp.gerarPix(t.fatura, contrato).catch(() => null);
     if (px?.codigoPix) { codigoPix = px.codigoPix; alvo = { fatura: t.fatura, valor: t.valor, vencimento: t.vencimento }; break; }
+  }
+  if (chaveManual && alvo) {
+    // Envia a chave (texto) + registra na conversa; sem card copia-e-cola.
+    const { to, channel } = await recipientFor(supabase, conversationId);
+    const provider = getProvider(channel);
+    const venc = fmtVenc(alvo.vencimento);
+    const val = typeof alvo.valor === "number" ? `R$ ${alvo.valor.toFixed(2).replace(".", ",")}` : null;
+    const ref = [val, venc ? `venc. ${venc}` : null].filter(Boolean).join(" — ");
+    const texto =
+      `Para pagamento da sua fatura${ref ? ` (${ref})` : ""}, faça um PIX para a chave (CNPJ):
+
+*${chaveManual}*
+MVF NET
+
+` +
+      `Após o pagamento, envie o comprovante aqui na conversa, por favor. 😊`;
+    const { data: m } = await supabase.from("messages").insert({
+      organization_id: session.organization.id, conversation_id: conversationId, direction: "out",
+      sender_type: "agent", sender_id: session.userId, content_type: "text", body: texto, status: "pending",
+    }).select("id").single();
+    try {
+      const res = await provider.sendText({ to, text: texto });
+      await supabase.from("messages").update({ status: "sent", external_id: res.externalId ?? null }).eq("id", m!.id);
+      await supabase.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conversationId);
+      void logEvent("info", "atendente", `${session.profile?.name ?? "Atendente"} enviou CHAVE PIX manual (contrato ${contrato}, fatura ${alvo.fatura})`, { conversationId, userId: session.userId, action: "enviar_chave_pix" }, session.organization.id);
+      revalidatePath("/atendimento");
+      return { ok: true, message: `Chave PIX enviada ao cliente ✅
+
+Fatura ${alvo.fatura}${ref ? ` — ${ref}` : ""}
+(copia-e-cola indisponível nesta unidade — modo chave manual)` };
+    } catch {
+      await supabase.from("messages").update({ status: "failed" }).eq("id", m!.id);
+      return { ok: false, message: "Falha ao enviar a chave PIX ao cliente." };
+    }
   }
   if (!codigoPix || !alvo) return { ok: false, message: "Nenhuma fatura em aberto (ou PIX indisponível) para este contrato." };
 

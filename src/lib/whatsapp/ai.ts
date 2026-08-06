@@ -450,13 +450,18 @@ async function saveSgpMemo(db: AiTurnContext["db"], conversationId: string, memo
 }
 
 /** Todas as contas SGP ATIVAS da org (multi-cidade). O cliente pode estar em qualquer uma. */
-async function sgpListForOrg(db: AiTurnContext["db"], orgId: string): Promise<{ id: string; client: SgpClient }[]> {
+async function sgpListForOrg(db: AiTurnContext["db"], orgId: string): Promise<{ id: string; client: SgpClient; pixChaveManual?: string }[]> {
   try {
     const { data } = await db.from("integrations").select("id, config").eq("organization_id", orgId).eq("type", "sgp").eq("active", true);
     const rows = (data ?? []) as { id: string; config: unknown }[];
-    const out: { id: string; client: SgpClient }[] = [];
+    const out: { id: string; client: SgpClient; pixChaveManual?: string }[] = [];
     for (const r of rows) {
-      try { out.push({ id: r.id, client: sgpFromConfig(r.config) }); } catch { /* config incompleta */ }
+      try {
+        // pix_chave_manual: modo temporário (ex.: Nova Canaã até regularizar o
+        // SGP↔Asaas) — em vez de gerar o copia-e-cola, informa a CHAVE PIX.
+        const chave = (r.config as { pix_chave_manual?: string } | null)?.pix_chave_manual;
+        out.push({ id: r.id, client: sgpFromConfig(r.config), pixChaveManual: typeof chave === "string" && chave.trim() ? chave.trim() : undefined });
+      } catch { /* config incompleta */ }
     }
     return out;
   } catch {
@@ -474,7 +479,7 @@ async function sgpListForOrg(db: AiTurnContext["db"], orgId: string): Promise<{ 
  */
 async function conferirValorComprovante(
   args: Record<string, unknown>,
-  sgpList: { id: string; client: SgpClient }[],
+  sgpList: { id: string; client: SgpClient; pixChaveManual?: string }[],
   defaultSgpId: string | undefined,
   memo: SgpMemo,
 ): Promise<string | null> {
@@ -501,7 +506,7 @@ async function conferirValorComprovante(
 /** Executa uma ferramenta do SGP e devolve um resultado serializável p/ o modelo.
  *  `sgpList` = todas as contas SGP da org; `defaultSgpId` = a do fluxo/automação.
  *  O SGP "ativo" é aquele onde o cliente foi localizado (memo.integrationId). */
-async function executeTool(name: string, args: Record<string, unknown>, sgpList: { id: string; client: SgpClient }[], defaultSgpId: string | undefined, memo: SgpMemo): Promise<unknown> {
+async function executeTool(name: string, args: Record<string, unknown>, sgpList: { id: string; client: SgpClient; pixChaveManual?: string }[], defaultSgpId: string | undefined, memo: SgpMemo): Promise<unknown> {
   if (name === "transferir_para_humano" || name === "finalizar_atendimento") {
     return { ok: true };
   }
@@ -617,6 +622,19 @@ async function executeTool(name: string, args: Record<string, unknown>, sgpList:
         return { ok: faturas.length > 0, protocolo, faturas };
       }
       case "gerar_pix": {
+        // Modo CHAVE MANUAL (ex.: Nova Canaã até regularizar SGP↔Asaas): não
+        // gera copia-e-cola; informa a chave PIX para transferência.
+        const ativo = (memo.integrationId && sgpList.find((s) => s.id === memo.integrationId)) ||
+          sgpList.find((s) => s.id === defaultSgpId) || sgpList[0];
+        if (ativo?.pixChaveManual) {
+          return {
+            ok: true,
+            chave_pix: ativo.pixChaveManual,
+            instrucao:
+              `O PIX copia-e-cola está TEMPORARIAMENTE indisponível nesta unidade. Informe ao cliente a CHAVE PIX (CNPJ) para pagamento por transferência: *${ativo.pixChaveManual}* (MVF NET). ` +
+              `Diga o VALOR da fatura em aberto (use faturas_em_aberto se ainda não souber) e peça para ENVIAR O COMPROVANTE aqui na conversa após o pagamento.`,
+          };
+        }
         const px = await sgp.gerarPix(num(args.fatura)!, resolveContrato(num(args.contrato)));
         return { ok: px.ok, codigoPix: px.codigoPix };
       }
