@@ -194,9 +194,14 @@ function AgentWizard({ agent, channels, defaultBasePrompt, onClose }: { agent: A
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-ink-soft">Mensagem de apresentação inicial *</label>
-                <textarea name="greeting" rows={3} defaultValue={c.greeting ?? ""} required
-                  placeholder="Ex.: Olá! Eu sou o Chatmixo, seu assistente virtual especializado em suporte técnico. Como posso ajudar você hoje?"
+                <textarea name="greeting" rows={4} defaultValue={c.greeting ?? ""} required
+                  placeholder={"Ex.: <saudacao>! Seja bem-vindo(a) ao atendimento virtual da MVF NET.\n\n📄 Protocolo de atendimento: <protocolo>\n\nVocê já é cliente? Responda Sim ou Não."}
                   className={`${inputCls} resize-none`} />
+                <p className="mt-1 text-[11px] text-ink-soft">
+                  Variáveis (substituídas automaticamente): <code className="rounded bg-gray-100 px-1">&lt;saudacao&gt;</code> vira
+                  Bom dia/Boa tarde/Boa noite conforme o horário · <code className="rounded bg-gray-100 px-1">&lt;protocolo&gt;</code> vira
+                  o nº do protocolo · <code className="rounded bg-gray-100 px-1">&lt;nome&gt;</code> vira o primeiro nome do cliente (se conhecido).
+                </p>
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-ink-soft">Canal (opcional)</label>

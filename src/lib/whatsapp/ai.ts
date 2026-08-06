@@ -754,7 +754,13 @@ function buildSystemPrompt(ctx: AiTurnContext): string {
   // 2. Knobs estruturados (opcionais).
   const knobs: string[] = [];
   if (a.tone) knobs.push(`Tom de voz: ${a.tone}.`);
-  if (a.greeting) knobs.push(`Mensagem de apresentação OBRIGATÓRIA na primeira interação — SUBSTITUI o formato padrão da regra 1 da base (pode usar <protocolo> para inserir o nº do protocolo): "${a.greeting}".`);
+  if (a.greeting)
+    knobs.push(
+      `Mensagem de apresentação OBRIGATÓRIA na primeira interação — SUBSTITUI o formato padrão da regra 1 da base. ` +
+        `Antes de enviar, substitua as variáveis: <saudacao> → a saudação adequada ao horário (Bom dia/Boa tarde/Boa noite, informada no contexto); ` +
+        `<protocolo> → o nº do protocolo (no contexto); <nome> → o primeiro nome do cliente se conhecido (se desconhecido, omita a palavra e ajuste a frase). ` +
+        `Mensagem: "${a.greeting}".`,
+    );
   if (a.useEmojis === false) knobs.push("Não use emojis nas respostas.");
   if (a.useEmojis === true) knobs.push("Pode usar emojis com moderação.");
   if (a.singleMessage) knobs.push("Responda com apenas UMA mensagem por turno (não divida em várias).");
