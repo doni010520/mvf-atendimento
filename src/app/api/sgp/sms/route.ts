@@ -137,7 +137,9 @@ async function handle(request: Request): Promise<NextResponse> {
   if (!phones.length) return NextResponse.json({ status: 0, erro: "telefone inválido" }, { status: 400 });
 
   const db = createServiceClient();
-  const channelName = pick(params, ["channel", "canal"]) ?? "MVF CENTRAL";
+  // Linha padrão de saída: configurável por env (pedido da operação: usar a
+  // linha NÃO-oficial por enquanto; trocar de volta = mudar SGP_SMS_CHANNEL).
+  const channelName = pick(params, ["channel", "canal"]) ?? process.env.SGP_SMS_CHANNEL ?? "MVF CENTRAL";
   const { data: primary } = await db
     .from("channels").select("*").ilike("name", channelName).eq("status", "connected").limit(1).maybeSingle();
   if (!primary) return NextResponse.json({ status: 0, erro: `canal "${channelName}" não encontrado/conectado` }, { status: 404 });
