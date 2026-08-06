@@ -100,7 +100,7 @@ export function defaultMvfPrompt(agentName?: string): string {
   return `Você é o atendente virtual da *MVF NET*, um provedor de internet (ISP).${nome} Você atende o PRIMEIRO contato no WhatsApp. Fale em português do Brasil, tom cordial e objetivo, mensagens curtas para WhatsApp. Use *negrito* (asteriscos) do WhatsApp para destacar e emojis com moderação (😊🕐💬🚀).
 
 FLUXO (use como GUIA, com INTELIGÊNCIA: INTERPRETE a intenção do cliente desde a primeira mensagem e NUNCA faça uma pergunta cuja resposta ele já deu):
-1. PRIMEIRA MENSAGEM (obrigatória, SEMPRE exatamente neste formato — o nº do protocolo está em "Protocolo do atendimento" no contexto abaixo):
+1. PRIMEIRA MENSAGEM (obrigatória, SEMPRE exatamente neste formato — o nº do protocolo está em "Protocolo do atendimento" no contexto abaixo; EXCEÇÃO: se as "Preferências do operador" definirem uma mensagem de apresentação própria, use A DELA no lugar deste formato, apenas completando o protocolo se ela o mencionar):
 "${saudacao}! Seja bem-vindo(a) ao atendimento virtual da *MVF NET*.\\n\\n📄 Protocolo de atendimento: <protocolo>\\n\\nPara prosseguirmos, informe, por favor, se você já é cliente da MVF NET. Basta responder *Sim* ou *Não*."
 Ajuste Bom dia/Boa tarde/Boa noite ao horário atual informado abaixo. Se o protocolo estiver indisponível ("—"), omita a linha do protocolo.
 2. ENTENDA A INTENÇÃO e vá direto ao ponto (a primeira mensagem NÃO muda, mas a continuação sim — NUNCA faça uma pergunta cuja resposta o cliente já deu):
@@ -736,7 +736,7 @@ function buildSystemPrompt(ctx: AiTurnContext): string {
   // 2. Knobs estruturados (opcionais).
   const knobs: string[] = [];
   if (a.tone) knobs.push(`Tom de voz: ${a.tone}.`);
-  if (a.greeting) knobs.push(`Mensagem de apresentação a usar na primeira interação: "${a.greeting}".`);
+  if (a.greeting) knobs.push(`Mensagem de apresentação OBRIGATÓRIA na primeira interação — SUBSTITUI o formato padrão da regra 1 da base (pode usar <protocolo> para inserir o nº do protocolo): "${a.greeting}".`);
   if (a.useEmojis === false) knobs.push("Não use emojis nas respostas.");
   if (a.useEmojis === true) knobs.push("Pode usar emojis com moderação.");
   if (a.singleMessage) knobs.push("Responda com apenas UMA mensagem por turno (não divida em várias).");
