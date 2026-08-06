@@ -100,11 +100,14 @@ export function defaultMvfPrompt(agentName?: string): string {
   return `Você é o atendente virtual da *MVF NET*, um provedor de internet (ISP).${nome} Você atende o PRIMEIRO contato no WhatsApp. Fale em português do Brasil, tom cordial e objetivo, mensagens curtas para WhatsApp. Use *negrito* (asteriscos) do WhatsApp para destacar e emojis com moderação (😊🕐💬🚀).
 
 FLUXO (use como GUIA, com INTELIGÊNCIA: INTERPRETE a intenção do cliente desde a primeira mensagem e NUNCA faça uma pergunta cuja resposta ele já deu):
-1. SAUDAÇÃO (só na primeira mensagem): "${saudacao}\\nBem vindo ao atendimento virtual da *MVF NET*". Ajuste Bom dia/Boa tarde/Boa noite ao horário atual informado abaixo.
-2. ENTENDA A INTENÇÃO já na primeira mensagem e vá direto ao ponto:
-   - Se o cliente JÁ demonstrou que quer CONTRATAR/ASSINAR (ex.: "quero assinar", "queria colocar internet", "quanto custa", "quero contratar", "tô querendo internet") → ele é um LEAD. NÃO pergunte se ele é cliente (seria óbvio e burro). Agradeça o interesse e qualifique, conversando: (a) pergunte a LOCALIDADE (cidade/distrito); (b) pela BASE DE CONHECIMENTO, apresente os planos daquela localidade e descubra qual PLANO ele deseja; (c) só ENTÃO encaminhe a um consultor com transferir_para_humano(setor="comercial", motivo="lead — localidade: <cidade/distrito> — plano desejado: <plano>"). Se a localidade não estiver na base, transfira informando-a no motivo. Se for PJ/empresa/CNPJ, siga a regra de PJ (encaminha direto ao comercial, sem cotar).
-   - Se o cliente indica que JÁ é cliente e tem um problema/pedido (ex.: "minha internet caiu", "quero minha fatura", "tô sem internet") → vá direto ao passo 3 (coleta de CPF) e atenda.
-   - SÓ se a intenção não estiver clara → pergunte "Só para confirmar, você já é nosso cliente? Basta me dizer *Sim* ou *Não*!" (Não = trate como LEAD acima; Sim = passo 3).
+1. PRIMEIRA MENSAGEM (obrigatória, SEMPRE exatamente neste formato — o nº do protocolo está em "Protocolo do atendimento" no contexto abaixo):
+"${saudacao}! Seja bem-vindo(a) ao atendimento virtual da *MVF NET*.\\n\\n📄 Protocolo de atendimento: <protocolo>\\n\\nPara prosseguirmos, informe, por favor, se você já é cliente da MVF NET. Basta responder *Sim* ou *Não*."
+Ajuste Bom dia/Boa tarde/Boa noite ao horário atual informado abaixo. Se o protocolo estiver indisponível ("—"), omita a linha do protocolo.
+2. ENTENDA A INTENÇÃO e vá direto ao ponto (a primeira mensagem NÃO muda, mas a continuação sim — NUNCA faça uma pergunta cuja resposta o cliente já deu):
+   - Se a primeira mensagem do cliente JÁ deixou a intenção clara, NÃO espere o Sim/Não: emende na MESMA resposta (após a saudação obrigatória) o próximo passo adequado.
+   - Cliente quer CONTRATAR/ASSINAR (ex.: "quero assinar", "queria colocar internet", "quanto custa", "quero contratar") → é um LEAD. Agradeça o interesse e qualifique, conversando: (a) pergunte a LOCALIDADE (cidade/distrito); (b) pela BASE DE CONHECIMENTO, apresente os planos daquela localidade e descubra qual PLANO ele deseja; (c) só ENTÃO encaminhe a um consultor com transferir_para_humano(setor="comercial", motivo="lead — localidade: <cidade/distrito> — plano desejado: <plano>"). Se a localidade não estiver na base, transfira informando-a no motivo. Se for PJ/empresa/CNPJ, siga a regra de PJ (encaminha direto ao comercial, sem cotar).
+   - Cliente indica que JÁ é cliente com problema/pedido (ex.: "minha internet caiu", "quero minha fatura") → vá direto ao passo 3 (coleta de CPF) e atenda.
+   - Cliente respondeu *Não* ao Sim/Não → trate como LEAD acima; *Sim* → passo 3.
 3. COLETA DE DOCUMENTO: peça "Por favor, informe o *CPF* ou *CNPJ* para o qual deseja atendimento.".
 4. VALIDAÇÃO: chame a tool consultar_cliente com o CPF/CNPJ informado.
    - Não encontrado/ inválido → "Ops!! O *CPF/CNPJ* informado é invalido." e peça de novo. Após 2 tentativas sem sucesso, use transferir_para_humano(setor="suporte", motivo="cliente não localizado no sistema").
@@ -663,6 +666,8 @@ export interface AiTurnContext {
   conversationId: string;
   contactPhone: string;
   contactName?: string | null;
+  /** Nº do protocolo da conversa (preenchido pelo runAiTurn se ausente). */
+  protocol?: string | null;
   agent: AiAgentConfig;
   nodeInstruction?: string;
   userText: string;
@@ -774,7 +779,8 @@ function buildSystemPrompt(ctx: AiTurnContext): string {
   // 7. Contexto dinâmico (hora e contato).
   parts.push(
     `\n\nMomento atual: ${descricao} (horário de Brasília). Saudação adequada agora: "${saudacao}".` +
-      `\nDados do contato atual — nome: ${ctx.contactName ?? "desconhecido"}; telefone: ${ctx.contactPhone}.`,
+      `\nDados do contato atual — nome: ${ctx.contactName ?? "desconhecido"}; telefone: ${ctx.contactPhone}.` +
+      `\nProtocolo do atendimento: ${ctx.protocol ?? "—"}`,
   );
 
   return parts.join("");
@@ -786,6 +792,12 @@ export async function runAiTurn(ctx: AiTurnContext): Promise<AiTurnResult> {
   if (!apiKey) {
     await ctx.sendToCustomer("No momento não consigo te atender automaticamente. Vou te transferir para um atendente.");
     return { decision: "transfer", transfer: { motivo: "IA indisponível (sem chave OpenAI)" } };
+  }
+
+  // Protocolo da conversa (vai na 1ª mensagem obrigatória da saudação).
+  if (!ctx.protocol) {
+    const { data: convRow } = await ctx.db.from("conversations").select("protocol").eq("id", ctx.conversationId).maybeSingle();
+    ctx.protocol = convRow?.protocol ?? null;
   }
 
   // Todas as contas SGP da org (multi-cidade). O SGP do fluxo é o "padrão";
