@@ -44,7 +44,8 @@ Produção: **https://mvfchat.benitechlab.com** · versão atual em `GET /api/ve
 - **Modal de atendimento (V2/Kanban) sem fechamentos acidentais:** clique no fundo só fecha se começou E terminou no fundo (selecionar texto não fecha); ESC não fecha o atendimento com sub-modal aberto (encerrar/transferir/nota).
 - **Mensagens internas entre atendentes** (aba no composer) + **notificações de menção** (sino, tempo real).
 - **Notas internas** na conversa.
-- **Respostas rápidas / macros** e **templates** (Meta, fora da janela de 24h). Templates são **por número/WABA** — o composer mostra só os do canal daquela conversa (picker com rolagem e nomes truncados); sincronize em *Mensagens → Templates* (varre todos os números Meta).
+- **Respostas rápidas / macros** e **templates** (Meta, fora da janela de 24h). Templates são **por número/WABA** — o composer mostra só os do canal daquela conversa (picker com rolagem e nomes truncados); sincronize em *Mensagens → Templates* (varre todos os números Meta). O envio exige preencher as variáveis: a **`{{1}}` já vem pré-preenchida com o primeiro nome do cliente** nos modelos de saudação, e uma **dica visível** avisa quando falta preencher (o botão fica desabilitado até lá — era lido como "modelo indisponível").
+- **Histórico completo do cliente no thread:** cada atendimento é uma conversa nova internamente, mas ao abrir qualquer conversa o chat carrega **todas as mensagens do contato naquele número** mescladas em ordem (últimas 600) — rola pra cima e vê o passado, estilo WhatsApp. O painel direito lista os **Atendimentos anteriores** (protocolo + resumo do encerramento + alerta de pendência) e o **"Ver conversa"** abre qualquer atendimento antigo mesmo que ele não apareça na lista do atendente (acesso legítimo ao histórico de um cliente que ele atende).
 
 ### Integração SGP (no painel do contato)
 - **Busca por CPF/CNPJ** varre **todos os SGPs** configurados (multi-SGP) e lista **todos os contratos** do cliente; quando há mais de um, mostra um **seletor de contrato**.
@@ -54,7 +55,10 @@ Produção: **https://mvfchat.benitechlab.com** · versão atual em `GET /api/ve
   - 💠 **PIX** — envia a fatura mais antiga em aberto como cartão com botão Copiar;
   - 🔓 **Liberar** (confiança) e 🛠️ **Status** da conexão.
 - Consulta de cliente, faturas, 2ª via/PIX, liberação e chamados também como **ferramentas do agente de IA**.
-- **Gateway “SMS” do SGP → WhatsApp** (`/api/sgp/sms`): substitui o HTTP Genérico do Chatmix. O SGP dispara os avisos (vencimento, cobrança…) para este endpoint (`numero` + `mensagem` + `token` = `SGP_SMS_TOKEN`) e o app entrega pelo canal padrão **MVF CENTRAL**; se a Meta recusar (janela de 24h fechada), **faz fallback automático para os canais uazapi**. Tudo registrado na conversa + `app_logs`.
+- **Gateway “SMS” do SGP → WhatsApp** (`/api/sgp/sms`): substitui o HTTP Genérico do Chatmix. O SGP dispara os avisos (vencimento, cobrança, link de contrato…) para este endpoint (`numero` + `mensagem` + `token` = `SGP_SMS_TOKEN`) e o app entrega pelo WhatsApp, registrado na conversa + `app_logs`. Detalhes importantes:
+  - **Linha de saída configurável:** `SGP_SMS_CHANNEL` no ambiente (ou `canal=` na requisição) define o canal padrão — em produção normal é **MVF CENTRAL**; em modo teste pode apontar pra uma linha uazapi.
+  - **Janela de 24h é tratada de forma ASSÍNCRONA:** a Meta **aceita** o envio (200 + id) e só reporta o `131047` depois, via webhook de statuses. Quando isso acontece com um aviso de sistema, o app reenvia sozinho **como template aprovado pela própria linha oficial**, escolhendo o template **pelo conteúdo**: link de contrato → `envio_de_contrato` ({{1}} = link); demais avisos → `aviso de vencimento` ({{1}} = nome). (São os templates HSM que o Chatmix deixou aprovados.) Existe ainda um template genérico `aviso_mvf_sgp` (carrega o texto exato do SGP) que assume o 1º lugar quando a Meta aprovar. Último recurso: reenvio por canal uazapi (dedup de 10 min).
+  - **9º dígito:** o gateway reaproveita o contato existente com/sem o `9` (o wa_id costuma vir sem) — não cria contato duplicado.
 
 ### IA e automação
 - Pausar/reativar o agente por conversa; **buffer de rajada** (junta mensagens seguidas e responde 1x); encerra ao **resolver** ou por **inatividade** (com aviso e despedida) e reinicia o fluxo.
@@ -117,6 +121,7 @@ OPENAI_API_KEY=              # sem ela o agente de IA não responde
 # SGP
 SGP_ENCRYPTION_KEY=          # AES-GCM para as credenciais do SGP em integrations.config
 SGP_SMS_TOKEN=               # autentica o gateway /api/sgp/sms (mesmo token vai na config do SGP)
+SGP_SMS_CHANNEL=             # canal padrão de saída do gateway (ex.: "MVF CENTRAL"; teste: "RIO DO MEIO")
 
 # Bot / automação
 BOT_DEBOUNCE_MS=8000         # buffer de rajada: junta mensagens seguidas e responde 1x (0 desliga)
