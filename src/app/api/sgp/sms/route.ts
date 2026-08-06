@@ -133,6 +133,24 @@ async function handle(request: Request): Promise<NextResponse> {
   const phonesRaw = pick(params, ["numero", "phone", "celular", "to", "telefone"]);
   const msg = pick(params, ["mensagem", "msg", "message", "texto", "text"]);
   if (!phonesRaw || !msg) return NextResponse.json({ status: 0, erro: "informe numero e mensagem" }, { status: 400 });
+
+  // TRAVA: formato interno do Chatmix ("variables=NOME||template=123"). As
+  // variáveis de aviso do SGP (sms_titulo etc.) ainda no formato antigo geraram
+  // um lote real de mensagens quebradas para clientes. Enquanto o SGP não for
+  // ajustado para texto puro, esse formato é BLOQUEADO (aceitamos o request
+  // para o SGP não reenfileirar, mas NADA é enviado ao cliente) e logado.
+  if (/(^|\|)variables=|\|\|template=|(^|&)template=\d+/i.test(msg)) {
+    const db0 = createServiceClient();
+    const { data: anyCh } = await db0.from("channels").select("organization_id").limit(1).maybeSingle();
+    void logEvent(
+      "error",
+      "sgp-sms",
+      `BLOQUEADO formato Chatmix (ajustar variável de aviso no SGP p/ texto puro): "${msg.slice(0, 80)}"`,
+      { phones: phonesRaw.slice(0, 60) },
+      anyCh?.organization_id ?? null,
+    );
+    return NextResponse.json({ status: 1, ok: false, bloqueado: "formato chatmix — mensagem NÃO enviada; ajuste o texto do aviso no SGP" });
+  }
   const phones = phonesRaw.split(",").map(normPhone).filter((p): p is string => !!p);
   if (!phones.length) return NextResponse.json({ status: 0, erro: "telefone inválido" }, { status: 400 });
 
