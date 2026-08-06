@@ -690,6 +690,17 @@ export async function assignToMe(conversationId: string) {
     .from("conversations")
     .update({ assigned_user_id: session.userId, status: "open", ai_enabled: false, offered_to: null })
     .eq("id", conversationId);
+  await supabase.from("messages").insert({
+    organization_id: session.organization.id,
+    conversation_id: conversationId,
+    direction: "out",
+    sender_type: "system",
+    sender_id: session.userId,
+    content_type: "text",
+    body: `📌 Atendimento ATRIBUÍDO a *${session.profile?.name ?? "atendente"}* (assumiu o atendimento).`,
+    is_internal: true,
+    status: "sent",
+  });
   void logEvent("info", "atendente", `${session.profile?.name ?? "Atendente"} assumiu o atendimento (IA pausada)`, { conversationId, userId: session.userId, action: "assumir" }, session.organization.id);
 
   // Mensagem de atribuição (se configurado). Variáveis suportadas no texto:
@@ -1208,9 +1219,13 @@ export async function transferConversation(conversationId: string, opts: Transfe
   {
     const actor = session.profile?.name ?? "Atendente";
     let alvo = "";
+    let corpoDireto: string | null = null;
     if (opts.toUserId) {
       const { data: prof } = await supabase.from("profiles").select("name").eq("id", opts.toUserId).maybeSingle();
-      alvo = prof?.name ? `para ${prof.name}` : "para outro atendente";
+      const nome = prof?.name ?? "outro atendente";
+      // Mensagem interna EXPLÍCITA (pedido da equipe: não notavam a atribuição).
+      corpoDireto = `📌 Atendimento ATRIBUÍDO a *${nome}* — transferido por ${actor}.`;
+      alvo = `para ${nome}`;
     } else if (offerIds.length) {
       const { data: profs } = await supabase.from("profiles").select("name").in("id", offerIds);
       const nomes = (profs ?? []).map((p) => p.name).filter(Boolean).join(", ");
@@ -1227,7 +1242,7 @@ export async function transferConversation(conversationId: string, opts: Transfe
         sender_type: "system",
         sender_id: session.userId,
         content_type: "text",
-        body: `🔄 ${actor} transferiu este atendimento ${alvo}.`,
+        body: corpoDireto ?? `🔄 ${actor} transferiu este atendimento ${alvo}.`,
         is_internal: true,
         status: "sent",
       });

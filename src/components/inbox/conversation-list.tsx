@@ -413,9 +413,18 @@ export function ConversationList({
                     </span>
                   )}
                 </div>
-                <p className="truncate text-[10px] text-ink-soft/70">
-                  {c.channel_name}
-                </p>
+                <div className="flex items-center gap-1.5">
+                  <p className="min-w-0 truncate text-[10px] text-ink-soft/70">
+                    {c.channel_name}
+                  </p>
+                  {/* Destaque pedido pela equipe: deixar ÓBVIO que a conversa
+                      está atribuída a MIM (não notavam a atribuição). */}
+                  {userId && c.assigned_user_id === userId && (
+                    <span className="shrink-0 rounded-full bg-green-100 px-1.5 py-px text-[9px] font-bold text-green-700">
+                      📌 VOCÊ
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           );

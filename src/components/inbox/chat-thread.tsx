@@ -143,6 +143,12 @@ export function ChatThread({
                 >
                   {isMeta ? "API Oficial" : "Beta"}
                 </span>
+                {/* Destaque no topo: conversa atribuída a MIM (pedido da equipe). */}
+                {currentUserId && conversation.assigned_user_id === currentUserId && (
+                  <span className="shrink-0 rounded-full bg-green-100 px-1.5 py-0.5 text-[9px] font-bold text-green-700" title="Este atendimento está atribuído a você">
+                    📌 ATRIBUÍDA A VOCÊ
+                  </span>
+                )}
                 {isGroup && <span className="shrink-0 rounded bg-brand-light px-1 py-0.5 text-[9px] font-medium text-brand">Grupo</span>}
                 {showAi && aiHandling && <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-violet-100 px-1 py-0.5 text-[9px] font-medium text-violet-700"><Bot size={9} /> IA</span>}
                 {showAi && aiPaused && <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-gray-100 px-1 py-0.5 text-[9px] font-medium text-ink-soft"><BotOff size={9} /> IA pausada</span>}
