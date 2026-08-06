@@ -327,6 +327,7 @@ export function ChatThread({
         isMeta={isMeta}
         templates={templates}
         channelId={conversation.channel_id}
+        contactName={conversation.contact_name}
         onSendTemplate={onSendTemplate}
         mentionCandidates={
           conversation.is_group && groupParticipants?.length

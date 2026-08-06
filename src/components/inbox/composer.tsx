@@ -24,6 +24,7 @@ export function Composer({
   isMeta = false,
   templates,
   channelId,
+  contactName,
   onSendTemplate,
   disabled,
   sending,
@@ -42,6 +43,7 @@ export function Composer({
   isMeta?: boolean;
   templates?: Template[];
   channelId?: string | null;
+  contactName?: string | null;
   onSendTemplate?: (name: string, language: string, params: string[]) => void;
   disabled?: boolean;
   sending?: boolean;
@@ -465,7 +467,17 @@ export function Composer({
               {visibleTemplates.map((t) => (
                 <button
                   key={`${t.name}-${t.language}`}
-                  onClick={() => { setTplPick(t); setTplParams(Array(t.varCount).fill("")); }}
+                  onClick={() => {
+                    setTplPick(t);
+                    // Pré-preenche {{1}} com o primeiro nome do cliente quando o
+                    // template é de saudação ("Olá {{1}}...") — era a principal
+                    // trava: o botão fica desabilitado até preencher a variável
+                    // e o atendente achava que o modelo "não estava disponível".
+                    const init = Array(t.varCount).fill("");
+                    const firstName = (contactName ?? "").trim().split(/\s+/)[0];
+                    if (t.varCount >= 1 && firstName && /ol[áa],?\s*\{\{1\}\}|oi,?\s*\{\{1\}\}/i.test(t.bodyText)) init[0] = firstName;
+                    setTplParams(init);
+                  }}
                   className="flex w-60 flex-col items-start gap-0.5 overflow-hidden rounded-lg border border-border px-2.5 py-2 text-left transition hover:border-brand"
                   title={t.name}
                 >
@@ -493,6 +505,11 @@ export function Composer({
                   className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-brand"
                 />
               ))}
+              {tplParams.some((p) => !p.trim()) && (
+                <p className="rounded-md bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">
+                  ✏️ Preencha {tplPick.varCount > 1 ? "as variáveis" : "a variável"} acima para liberar o envio — ex.: o <b>nome do cliente</b>.
+                </p>
+              )}
               <button
                 onClick={() => { onSendTemplate?.(tplPick.name, tplPick.language, tplParams); setTplPick(null); setTplParams([]); }}
                 disabled={sending || tplParams.some((p) => !p.trim())}
