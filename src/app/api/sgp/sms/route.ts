@@ -134,22 +134,34 @@ async function handle(request: Request): Promise<NextResponse> {
   const msg = pick(params, ["mensagem", "msg", "message", "texto", "text"]);
   if (!phonesRaw || !msg) return NextResponse.json({ status: 0, erro: "informe numero e mensagem" }, { status: 400 });
 
-  // TRAVA: formato interno do Chatmix ("variables=NOME||template=123"). As
-  // variáveis de aviso do SGP (sms_titulo etc.) ainda no formato antigo geraram
-  // um lote real de mensagens quebradas para clientes. Enquanto o SGP não for
-  // ajustado para texto puro, esse formato é BLOQUEADO (aceitamos o request
-  // para o SGP não reenfileirar, mas NADA é enviado ao cliente) e logado.
-  if (/(^|\|)variables=|\|\|template=|(^|&)template=\d+/i.test(msg)) {
+  // FORMATO CHATMIX ("variables=X||template=NNN"): as variáveis de aviso do
+  // SGP ainda estão no formato do sistema antigo. Em vez de repassar cru
+  // (lote real chegou quebrado ao cliente) ou só bloquear, TRADUZIMOS:
+  //   variables = URL  → é envio de CONTRATO/assinatura → mensagem com o link;
+  //   variables = NOME → é aviso de pagamento → texto de vencimento com o nome;
+  //   ilegível         → bloqueia (aceita o request, não envia, loga erro).
+  let effectiveMsg = msg;
+  const chatmix = msg.match(/variables=(.*?)\|\|\s*template=(\d+)/i);
+  if (chatmix) {
+    const valor = (chatmix[1] ?? "").trim();
+    const tplId = chatmix[2];
+    const urlM = valor.match(/https?:\/\/\S+/);
     const db0 = createServiceClient();
     const { data: anyCh } = await db0.from("channels").select("organization_id").limit(1).maybeSingle();
-    void logEvent(
-      "error",
-      "sgp-sms",
-      `BLOQUEADO formato Chatmix (ajustar variável de aviso no SGP p/ texto puro): "${msg.slice(0, 80)}"`,
-      { phones: phonesRaw.slice(0, 60) },
-      anyCh?.organization_id ?? null,
-    );
-    return NextResponse.json({ status: 1, ok: false, bloqueado: "formato chatmix — mensagem NÃO enviada; ajuste o texto do aviso no SGP" });
+    if (urlM) {
+      effectiveMsg = `Conforme combinado, segue o link para visualização e aceite do seu contrato:\n${urlM[0]}\n\nQualquer dúvida, fico à disposição.`;
+      void logEvent("info", "sgp-sms", `formato Chatmix TRADUZIDO (template ${tplId}, link de contrato)`, { tplId }, anyCh?.organization_id ?? null);
+    } else if (/^[\p{L}\s.'-]{2,40}$/u.test(valor)) {
+      const nome = valor.split(/\s+/)[0];
+      const nomeFmt = nome.charAt(0).toUpperCase() + nome.slice(1).toLowerCase();
+      effectiveMsg =
+        `Mensagem automática - MVF NET\nOlá ${nomeFmt}, informamos o vencimento da sua fatura. 5 dias após o vencimento a suspensão do serviço de internet é automática pelo sistema.\n` +
+        `Se o pagamento já foi efetuado favor desconsiderar essa mensagem.\nA MVF NET agradece.`;
+      void logEvent("info", "sgp-sms", `formato Chatmix TRADUZIDO (template ${tplId}, aviso de vencimento p/ ${nomeFmt})`, { tplId }, anyCh?.organization_id ?? null);
+    } else {
+      void logEvent("error", "sgp-sms", `BLOQUEADO formato Chatmix ilegível (template ${tplId}): "${msg.slice(0, 80)}"`, { phones: phonesRaw.slice(0, 60) }, anyCh?.organization_id ?? null);
+      return NextResponse.json({ status: 1, ok: false, bloqueado: "formato chatmix ilegível — nada enviado; ajuste o texto do aviso no SGP" });
+    }
   }
   const phones = phonesRaw.split(",").map(normPhone).filter((p): p is string => !!p);
   if (!phones.length) return NextResponse.json({ status: 0, erro: "telefone inválido" }, { status: 400 });
@@ -171,7 +183,7 @@ async function handle(request: Request): Promise<NextResponse> {
   for (const phone of phones) {
     let done: { ok: boolean; via?: string; erro?: string } = { ok: false };
     for (const ch of chain) {
-      const r = await deliverVia(db, ch, phone, msg);
+      const r = await deliverVia(db, ch, phone, effectiveMsg);
       if (r.ok) { done = { ok: true, via: ch.name as string }; break; }
       done = { ok: false, erro: r.erro };
     }
@@ -182,7 +194,7 @@ async function handle(request: Request): Promise<NextResponse> {
   void logEvent(
     okCount ? "info" : "error",
     "sgp-sms",
-    `SGP→WhatsApp: ${okCount}/${results.length} entregue(s) — "${msg.slice(0, 70)}"`,
+    `SGP→WhatsApp: ${okCount}/${results.length} entregue(s) — "${effectiveMsg.slice(0, 70)}"`,
     { results },
     primary.organization_id,
   );

@@ -611,7 +611,7 @@ async function resendSystemAsTemplate(
   // link vai no {{1}}); senão → aviso de vencimento (param = nome). Sem isso,
   // um "SMS" de contrato fora da janela viraria um aviso de fatura errado.
   const url = texto.match(/https?:\/\/\S+/)?.[0] ?? null;
-  const isContrato = !!url && /contrat|aceite|termo/i.test(texto + url);
+  const isContrato = !!url && /contrat|aceite|termo|assinatura|eletronica/i.test(texto + url);
   const chatmixTpl = isContrato
     ? {
         name: "envio_de_contrato_chat_7837",
