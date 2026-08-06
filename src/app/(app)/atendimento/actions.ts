@@ -1395,6 +1395,46 @@ export async function sgpLookupByCpf(cpfcnpj: string): Promise<SgpLookupResult> 
   return { encontrado: true, nome, cpfcnpj: cpfOut ?? cpf, email, contratos };
 }
 
+
+/** Contato (telefone/nome) da conversa — para desambiguar o dono de um contrato. */
+async function contatoDaConversa(supabase: Awaited<ReturnType<typeof createClient>>, conversationId: string): Promise<{ phone?: string | null; name?: string | null }> {
+  const { data } = await supabase.from("conversation_overview").select("contact_phone, contact_name").eq("id", conversationId).maybeSingle();
+  return { phone: data?.contact_phone ?? null, name: data?.contact_name ?? null };
+}
+
+/**
+ * Resolve QUAL SGP é o dono do contrato. Números de contrato COLIDEM entre as
+ * bases (caso real: 796 = Jean Cleber em Iguaí E Rubenita em Canaã — o cliente
+ * de Iguaí recebeu a chave PIX de Canaã). Se o contrato existir em mais de um
+ * SGP, confere o TELEFONE (últimos 8 dígitos) e depois o NOME do contato da
+ * conversa contra o cadastro; se ainda ficar ambíguo, retorna os nomes para o
+ * chamador RECUSAR com aviso (melhor que chutar).
+ */
+async function resolveSgpForContrato<T extends { consultarCliente: (by: { contrato: number }) => Promise<{ encontrado: boolean; nome?: string; telefones?: string[] }> }>(
+  sgps: T[],
+  contrato: number,
+  contato: { phone?: string | null; name?: string | null },
+): Promise<{ sgp: T; nome?: string } | { ambiguo: string[] } | null> {
+  const found: { sgp: T; nome?: string; telefones?: string[] }[] = [];
+  for (const sgp of sgps) {
+    const c = await sgp.consultarCliente({ contrato }).catch(() => null);
+    if (c?.encontrado) found.push({ sgp, nome: c.nome, telefones: c.telefones });
+  }
+  if (!found.length) return null;
+  if (found.length === 1) return { sgp: found[0].sgp, nome: found[0].nome };
+  const tail = (contato.phone ?? "").replace(/\D+/g, "").slice(-8);
+  if (tail) {
+    const byPhone = found.filter((f) => (f.telefones ?? []).some((t) => String(t).replace(/\D+/g, "").endsWith(tail)));
+    if (byPhone.length === 1) return { sgp: byPhone[0].sgp, nome: byPhone[0].nome };
+  }
+  const first = (contato.name ?? "").trim().split(/\s+/)[0]?.toLowerCase();
+  if (first && first.length >= 3) {
+    const byName = found.filter((f) => (f.nome ?? "").toLowerCase().includes(first));
+    if (byName.length === 1) return { sgp: byName[0].sgp, nome: byName[0].nome };
+  }
+  return { ambiguo: found.map((f) => f.nome ?? "?") };
+}
+
 export async function sgpAction(conversationId: string, action: string, contrato: number): Promise<string> {
   if (isPreview()) return "Modo preview.";
   const session = await getSession();
@@ -1408,12 +1448,13 @@ export async function sgpAction(conversationId: string, action: string, contrato
     .map((r) => { try { return sgpFromConfig(r.config); } catch { return null; } })
     .filter((c): c is NonNullable<typeof c> => !!c);
   if (!clients.length) return "SGP não configurado. Cadastre a integração em Ajustes > Integrações.";
-  // Acha o SGP que TEM esse contrato (multi-cidade: Iguaí, Nova Canaã, etc.).
-  let sgp = clients[0];
-  for (const cli of clients) {
-    const c = await cli.consultarCliente({ contrato }).catch(() => null);
-    if (c?.encontrado) { sgp = cli; break; }
+  // Acha o SGP DONO do contrato (com desambiguação — números colidem entre bases).
+  const contato = await contatoDaConversa(supabase, conversationId);
+  const resolvido = await resolveSgpForContrato(clients, contrato, contato);
+  if (resolvido && "ambiguo" in resolvido) {
+    return `⚠️ O contrato ${contrato} existe em MAIS DE UMA unidade (${resolvido.ambiguo.join(" / ")}) e não consegui confirmar qual é deste cliente. Use a busca por CPF no painel para carregar o contrato correto.`;
   }
+  const sgp = resolvido?.sgp ?? clients[0];
   try {
     switch (action) {
       case "segunda_via": {
@@ -1491,15 +1532,28 @@ export async function sgpSendPix(conversationId: string, contrato: number): Prom
   let codigoPix: string | null = null;
   let alvo: { fatura: number; valor?: number; vencimento?: string } | null = null;
   let chaveManual: string | null = null;
-  for (const { sgp, pixChaveManual } of clients) {
-    const titulos = await sgp.titulosEmAberto({ contrato }).catch(() => [] as Awaited<ReturnType<typeof sgp.titulosEmAberto>>);
-    if (!titulos.length) continue;
-    const t = titulos[0];
-    // Modo CHAVE MANUAL (ex.: Nova Canaã até regularizar SGP↔Asaas): não gera
-    // copia-e-cola; envia a CHAVE PIX para transferência.
-    if (pixChaveManual) { chaveManual = pixChaveManual; alvo = { fatura: t.fatura, valor: t.valor, vencimento: t.vencimento }; break; }
-    const px = await sgp.gerarPix(t.fatura, contrato).catch(() => null);
-    if (px?.codigoPix) { codigoPix = px.codigoPix; alvo = { fatura: t.fatura, valor: t.valor, vencimento: t.vencimento }; break; }
+  // Resolve o SGP DONO do contrato (desambiguação por telefone/nome do contato
+  // — números de contrato colidem entre as bases; caso real do contrato 796).
+  {
+    const contato = await contatoDaConversa(supabase, conversationId);
+    const resolvido = await resolveSgpForContrato(clients.map((c) => c.sgp), contrato, contato);
+    if (resolvido && "ambiguo" in resolvido) {
+      return { ok: false, message: `⚠️ O contrato ${contrato} existe em MAIS DE UMA unidade (${resolvido.ambiguo.join(" / ")}) e não consegui confirmar qual é deste cliente. Use a busca por CPF no painel para carregar o contrato correto.` };
+    }
+    const dono = resolvido ? clients.find((c) => c.sgp === resolvido.sgp) : undefined;
+    if (dono) {
+      const titulos = await dono.sgp.titulosEmAberto({ contrato }).catch(() => [] as Awaited<ReturnType<typeof dono.sgp.titulosEmAberto>>);
+      if (titulos.length) {
+        const t = titulos[0];
+        if (dono.pixChaveManual) {
+          // Modo CHAVE MANUAL (ex.: Nova Canaã até regularizar SGP↔Asaas).
+          chaveManual = dono.pixChaveManual; alvo = { fatura: t.fatura, valor: t.valor, vencimento: t.vencimento };
+        } else {
+          const px = await dono.sgp.gerarPix(t.fatura, contrato).catch(() => null);
+          if (px?.codigoPix) { codigoPix = px.codigoPix; alvo = { fatura: t.fatura, valor: t.valor, vencimento: t.vencimento }; }
+        }
+      }
+    }
   }
   if (chaveManual && alvo) {
     // Envia a chave (texto) + registra na conversa; sem card copia-e-cola.
@@ -1620,12 +1674,19 @@ export async function sgpSendBoleto(conversationId: string, contrato: number): P
     .filter((c): c is NonNullable<typeof c> => !!c);
   if (!clients.length) return { ok: false, message: "Nenhum SGP configurado." };
 
-  // Acha o SGP do contrato e pega a 2ª via com link do PDF.
+  // Acha o SGP DONO do contrato (desambiguação) e pega a 2ª via com PDF.
   type Fat = { fatura: number; valor?: number; vencimento?: string; linhaDigitavel?: string; link?: string };
   let faturas: Fat[] = [];
-  for (const sgp of clients) {
-    const r = await sgp.segundaVia({ contrato, linkPdf: true }).catch(() => null);
-    if (r?.ok && r.faturas?.length) { faturas = r.faturas as Fat[]; break; }
+  {
+    const contato = await contatoDaConversa(supabase, conversationId);
+    const resolvido = await resolveSgpForContrato(clients, contrato, contato);
+    if (resolvido && "ambiguo" in resolvido) {
+      return { ok: false, message: `⚠️ O contrato ${contrato} existe em MAIS DE UMA unidade (${resolvido.ambiguo.join(" / ")}) e não consegui confirmar qual é deste cliente. Use a busca por CPF no painel para carregar o contrato correto.` };
+    }
+    if (resolvido) {
+      const r = await resolvido.sgp.segundaVia({ contrato, linkPdf: true }).catch(() => null);
+      if (r?.ok && r.faturas?.length) faturas = r.faturas as Fat[];
+    }
   }
   if (!faturas.length) return { ok: false, message: "Nenhuma fatura em aberto para este contrato." };
   // Mais antiga primeiro (vencimento asc, quando disponível).
@@ -1716,17 +1777,15 @@ export async function sgpSendContrato(conversationId: string, contrato: number):
     .filter((c): c is NonNullable<typeof c> => !!c);
   if (!clients.length) return { ok: false, message: "Nenhum SGP configurado." };
 
-  // Acha o SGP do contrato (multi-cidade) e baixa o PDF do contrato.
+  // Acha o SGP DONO do contrato (desambiguação) e baixa o PDF do contrato.
   let pdf: Buffer | null = null;
-  for (const sgp of clients) {
-    const c = await sgp.consultarCliente({ contrato }).catch(() => null);
-    if (!c?.encontrado) continue;
-    pdf = await sgp.contratoPdf(contrato);
-    break;
-  }
-  if (!pdf) {
-    // fallback: tenta em todos (consultarCliente pode falhar mesmo com contrato válido)
-    for (const sgp of clients) { pdf = await sgp.contratoPdf(contrato); if (pdf) break; }
+  {
+    const contato = await contatoDaConversa(supabase, conversationId);
+    const resolvido = await resolveSgpForContrato(clients, contrato, contato);
+    if (resolvido && "ambiguo" in resolvido) {
+      return { ok: false, message: `⚠️ O contrato ${contrato} existe em MAIS DE UMA unidade (${resolvido.ambiguo.join(" / ")}) e não consegui confirmar qual é deste cliente. Use a busca por CPF no painel para carregar o contrato correto.` };
+    }
+    if (resolvido) pdf = await resolvido.sgp.contratoPdf(contrato);
   }
   if (!pdf) return { ok: false, message: "Não foi possível gerar o PDF do contrato no SGP." };
 
