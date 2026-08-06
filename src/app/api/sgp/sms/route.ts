@@ -130,6 +130,15 @@ async function handle(request: Request): Promise<NextResponse> {
     return NextResponse.json({ status: 0, erro: "token inválido" }, { status: 401 });
   }
 
+  // CHAVE GERAL: SGP_SMS_PAUSED=1 pausa TODOS os disparos do gateway (aceita o
+  // request para o SGP não reenfileirar, mas NADA é enviado; tudo logado).
+  if (process.env.SGP_SMS_PAUSED === "1") {
+    const db0 = createServiceClient();
+    const { data: anyCh } = await db0.from("channels").select("organization_id").limit(1).maybeSingle();
+    void logEvent("warn", "sgp-sms", `PAUSADO (chave geral) — disparo NÃO enviado: "${String(pick(params, ["mensagem", "msg", "message", "texto", "text"]) ?? "").slice(0, 70)}"`, {}, anyCh?.organization_id ?? null);
+    return NextResponse.json({ status: 1, ok: false, pausado: true });
+  }
+
   const phonesRaw = pick(params, ["numero", "phone", "celular", "to", "telefone"]);
   const msg = pick(params, ["mensagem", "msg", "message", "texto", "text"]);
   if (!phonesRaw || !msg) return NextResponse.json({ status: 0, erro: "informe numero e mensagem" }, { status: 400 });
