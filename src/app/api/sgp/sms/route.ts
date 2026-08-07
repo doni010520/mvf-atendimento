@@ -172,6 +172,19 @@ async function handle(request: Request): Promise<NextResponse> {
       return NextResponse.json({ status: 1, ok: false, bloqueado: "formato chatmix ilegível — nada enviado; ajuste o texto do aviso no SGP" });
     }
   }
+  // GATEWAY RESTRITO A CONTRATOS (decisão da operação, 07/08/2026): por ora o
+  // SGP só usa este gateway para enviar CONTRATO/assinatura. Qualquer outro
+  // disparo (ex.: lote de aviso de vencimento das 8h) é aceito e registrado,
+  // mas NÃO enviado. Para voltar a liberar tudo: env SGP_SMS_ALLOW=tudo.
+  const urlInMsg = effectiveMsg.match(/https?:\/\/\S+/)?.[0] ?? null;
+  const isContrato = !!urlInMsg && (!!chatmix || /contrat|aceite|termo|assinatura|eletronica/i.test(effectiveMsg + urlInMsg));
+  if (process.env.SGP_SMS_ALLOW !== "tudo" && !isContrato) {
+    const db1 = createServiceClient();
+    const { data: anyCh1 } = await db1.from("channels").select("organization_id").limit(1).maybeSingle();
+    void logEvent("warn", "sgp-sms", `IGNORADO (gateway restrito a CONTRATOS): "${String(msg).slice(0, 80)}"`, { phones: phonesRaw.slice(0, 60) }, anyCh1?.organization_id ?? null);
+    return NextResponse.json({ status: 1, ok: false, ignorado: "gateway restrito a contratos" });
+  }
+
   const phones = phonesRaw.split(",").map(normPhone).filter((p): p is string => !!p);
   if (!phones.length) return NextResponse.json({ status: 0, erro: "telefone inválido" }, { status: 400 });
 
