@@ -280,7 +280,16 @@ export function MessageBubble({
           <div className={cn("mt-1 flex items-center justify-end gap-1 text-[10px]", out ? "text-white/70" : "text-ink-soft")} suppressHydrationWarning>
             {message.edited && <span className="italic">editada</span>}
             {time}
-            {out && <StatusIcon status={message.status} />}
+            {out && message.status === "failed" ? (
+              <span
+                className="flex items-center gap-0.5 rounded bg-red-600 px-1 py-px font-semibold text-white"
+                title="A Meta recusou a entrega — geralmente cliente sem conversa nas últimas 24h (janela fechada). Se for texto, o sistema reenvia sozinho como mensagem automática."
+              >
+                <AlertCircle size={10} /> não entregue
+              </span>
+            ) : (
+              out && <StatusIcon status={message.status} />
+            )}
           </div>
         </div>
         {reactions.length > 0 && (

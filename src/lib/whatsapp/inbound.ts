@@ -558,19 +558,30 @@ export async function persistMetaStatuses(
         { messageId: msg.id, contentType: msg.content_type, errorCode: u.errorCode, errorTitle: u.errorTitle, errorDetails: u.errorDetails },
         msg.organization_id,
       );
-      // FALLBACK ASSÍNCRONO (avisos do SGP/sistema): a Meta ACEITA o envio na
-      // hora e só reporta o 131047 (janela de 24h) depois, via webhook — então
-      // um fallback síncrono nunca dispara. Quando um aviso do sistema falha
-      // por janela, reenviamos automaticamente por um canal uazapi (sem
-      // restrição de janela).
-      if (u.errorCode === 131047 && msg.sender_type === "system" && msg.content_type === "text" && msg.body) {
-        const m = msg as { id: string; organization_id: string; conversation_id: string; body: string };
-        // 1º: TEMPLATE pela MESMA linha oficial (o aviso continua saindo pelo
-        // número da Central — requisito da operação). Só se o template falhar
-        // (ainda não aprovado etc.) cai pro uazapi.
-        const viaTemplate = await resendSystemAsTemplate(db, m).catch(() => false);
-        if (!viaTemplate) {
-          await resendSystemViaUazapi(db, m).catch((e) => console.error("fallback uazapi", e));
+      // FALLBACK ASSÍNCRONO: a Meta ACEITA o envio na hora e só reporta o
+      // 131047 (janela de 24h) depois, via webhook — então um fallback
+      // síncrono nunca dispara. Vale para avisos do sistema E texto de
+      // atendente: reenvia como template pela mesma linha; se não der, por um
+      // canal uazapi (sem restrição de janela). `msg.status !== "failed"`
+      // impede reenvio duplicado quando a Meta repete o evento de falha.
+      if (
+        u.errorCode === 131047 &&
+        msg.status !== "failed" &&
+        (msg.sender_type === "system" || msg.sender_type === "agent") &&
+        msg.content_type === "text" &&
+        msg.body
+      ) {
+        // Texto de atendente carrega o prefixo "*Nome:*" — sai do reenvio.
+        const body = msg.body.replace(/^\*[^*\n]{2,60}:\*\s*/, "").trim();
+        if (body) {
+          const m = { id: msg.id, organization_id: msg.organization_id, conversation_id: msg.conversation_id, body };
+          // 1º: TEMPLATE pela MESMA linha oficial (o aviso continua saindo pelo
+          // número da Central — requisito da operação). Só se o template falhar
+          // (ainda não aprovado etc.) cai pro uazapi.
+          const viaTemplate = await resendSystemAsTemplate(db, m).catch(() => false);
+          if (!viaTemplate) {
+            await resendSystemViaUazapi(db, m).catch((e) => console.error("fallback uazapi", e));
+          }
         }
       }
       continue;
