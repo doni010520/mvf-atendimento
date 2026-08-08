@@ -121,7 +121,8 @@ Ajuste Bom dia/Boa tarde/Boa noite ao horário atual informado abaixo. Se o prot
        d) Você pode usar status_conexao(contrato) para checar se o serviço está online.
        e) Se NÃO resolver, ou o cliente pedir um especialista/humano → transferir_para_humano(setor="suporte"). Se for um defeito que precisa de visita técnica, use abrir_chamado antes de transferir.
    - COMERCIAL (instalação, novo plano, mudança de plano): "Claro! Vou levar sua solicitação para o setor comercial para verificar as opções." → transferir_para_humano(setor="comercial").
-   - DESBLOQUEIO / liberação por confiança: se o cliente está bloqueado por falta de pagamento e promete pagar, você pode usar liberacao_confianca(contrato).
+   - DESBLOQUEIO / liberação por confiança: se o cliente está BLOQUEADO por falta de pagamento e promete pagar, você pode usar liberacao_confianca(contrato). Vale APENAS para contrato bloqueado — se o contrato estiver cancelado, siga a regra CONTRATO CANCELADO abaixo.
+   - CONTRATO CANCELADO: se consultar_cliente mostrar o contrato com status cancelado, o atendimento é do HUMANO — você não conduz. NÃO informe ao cliente o status do contrato nem valores/condições de reativação, NÃO gere boleto/PIX, NÃO ofereça liberação por confiança e NÃO diga que algo "não é possível". Acolha e encaminhe em UMA mensagem: "Perfeito, localizei seu cadastro! Vou te passar agora para um dos nossos atendentes dar sequência, um instante! 😊" e chame transferir_para_humano(setor="financeiro", motivo="contrato CANCELADO — <o que o cliente pediu> — em aberto: R$ <valor>"). Todo o contexto (status, valores) vai no MOTIVO da transferência, que é interno — nunca na conversa com o cliente.
 
 PAGAMENTO / PIX (regra): o PADRÃO é enviar o PIX do PRÓPRIO BOLETO gerado pelo SGP — use segunda_via/gerar_pix e mande ao cliente o *código PIX copia-e-cola* e o *link* do boleto (cada um em mensagem própria). NÃO informe chave PIX avulsa da empresa por padrão. A ÚNICA exceção é a localidade que a BASE DE CONHECIMENTO indicar que ainda usa chave PIX avulsa — nesse caso siga exatamente o que estiver lá.
 
@@ -314,7 +315,7 @@ const TOOLS = [
     function: {
       name: "liberacao_confianca",
       description:
-        "Libera o acesso à internet por confiança (promessa de pagamento) para um contrato bloqueado por falta de pagamento. Use quando o cliente pede para desbloquear prometendo pagar.",
+        "Libera o acesso à internet por confiança (promessa de pagamento) para um contrato BLOQUEADO por falta de pagamento. Use quando o cliente pede para desbloquear prometendo pagar. Não funciona para contrato cancelado (a ferramenta recusa).",
       parameters: {
         type: "object",
         properties: { contrato: { type: "number" } },
@@ -641,6 +642,18 @@ async function executeTool(name: string, args: Record<string, unknown>, sgpList:
       case "liberacao_confianca": {
         const contrato = resolveContrato(num(args.contrato));
         if (!contrato) return { ok: false, mensagem: "Contrato não identificado. Confirme o cadastro com consultar_cliente." };
+        // TRAVA (caso Taty, 08/08/2026): contrato CANCELADO nunca é liberado por
+        // confiança — o SGP pode até aceitar a chamada, mas a operação decidiu
+        // que cancelado vai SEMPRE pro humano, sem o bot expor status ao cliente.
+        const cad = await sgp.consultarCliente({ contrato }).catch(() => null);
+        const st = cad?.contratos?.find((ct) => ct.contrato === contrato)?.status ?? "";
+        if (/cancelad/i.test(st)) {
+          return {
+            ok: false,
+            mensagem:
+              'NEGADO: este contrato não permite liberação por confiança. NÃO informe status nem valores ao cliente — diga apenas que vai encaminhá-lo a um atendente e chame transferir_para_humano(setor="financeiro", motivo="contrato CANCELADO — cliente pediu desbloqueio/reativação").',
+          };
+        }
         const r = await sgp.liberacaoConfianca({ contrato });
         return { ok: r.ok, protocolo: r.protocolo, mensagem: r.mensagem };
       }
