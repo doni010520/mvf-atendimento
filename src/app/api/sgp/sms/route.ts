@@ -177,7 +177,12 @@ async function handle(request: Request): Promise<NextResponse> {
   // disparo (ex.: lote de aviso de vencimento das 8h) é aceito e registrado,
   // mas NÃO enviado. Para voltar a liberar tudo: env SGP_SMS_ALLOW=tudo.
   const urlInMsg = effectiveMsg.match(/https?:\/\/\S+/)?.[0] ?? null;
-  const isContrato = !!urlInMsg && (!!chatmix || /contrat|aceite|termo|assinatura|eletronica/i.test(effectiveMsg + urlInMsg));
+  const isContrato =
+    (!!urlInMsg && (!!chatmix || /contrat|aceite|termo|assinatura|eletronica/i.test(effectiveMsg + urlInMsg))) ||
+    // Avisos do ciclo de assinatura SEM link também são assunto de contrato
+    // (ex.: "A assinatura do documento Contrato ... foi aprovada" — bloqueado
+    // por engano em 10/08). Exige as DUAS palavras p/ não abrir porta a cobrança.
+    (/assinatura/i.test(effectiveMsg) && /contrat/i.test(effectiveMsg));
   if (process.env.SGP_SMS_ALLOW !== "tudo" && !isContrato) {
     const db1 = createServiceClient();
     const { data: anyCh1 } = await db1.from("channels").select("organization_id").limit(1).maybeSingle();
