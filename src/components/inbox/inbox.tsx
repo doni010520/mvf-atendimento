@@ -773,7 +773,11 @@ export function Inbox({
     ? conversations.filter((c) => !disconnectedIds.has(c.channel_id))
     : conversations;
   if (!isAdmin) {
-    visibleConversations = visibleConversations.filter((c) => !c.assigned_user_id || c.assigned_user_id === userId);
+    // Encerrada é histórico (visível p/ todos — "Ver conversa" do painel); o
+    // filtro por dono vale só para conversas ativas.
+    visibleConversations = visibleConversations.filter(
+      (c) => c.status === "closed" || !c.assigned_user_id || c.assigned_user_id === userId,
+    );
   }
   const allDisconnected = disconnectedChannels.length > 0 && visibleConversations.length === 0 && conversations.length > 0;
 

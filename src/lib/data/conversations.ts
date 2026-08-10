@@ -45,9 +45,13 @@ export async function getConversations(): Promise<ConversationOverview[]> {
   const base = () =>
     supabase.from("conversation_overview").select("*").order("last_message_at", { ascending: false, nullsFirst: false });
 
+  // ENCERRADA é HISTÓRICO: visível para TODO atendente (o painel do contato tem
+  // "Atendimentos anteriores → Ver conversa", que precisa abrir para quem está
+  // atendendo agora, não só para admin). O filtro de visibilidade vale só para
+  // as ATIVAS — é lá que um atendente não deve mexer no atendimento do outro.
   const [ativas, encerradas] = await Promise.all([
     withVisibility(base().neq("status", "closed")).limit(2000),
-    withVisibility(base().eq("status", "closed")).limit(800),
+    base().eq("status", "closed").limit(800),
   ]);
   let rows = [
     ...((ativas.data as ConversationOverview[]) ?? []),
@@ -60,6 +64,7 @@ export async function getConversations(): Promise<ConversationOverview[]> {
   if (hidden.size) rows = rows.filter((r) => !hidden.has(r.channel_id));
   if (!isAdmin) {
     rows = rows.filter((r) => {
+      if (r.status === "closed") return true; // histórico: visível p/ todos
       if (r.assigned_user_id === userId) return true; // é minha
       if (r.assigned_user_id) return false; // de outro atendente
       // Sem dono: fila geral (offered_to vazio) OU oferecida especificamente a mim.
