@@ -140,7 +140,7 @@ export class MetaProvider implements ChannelProvider {
     return { id: j.id, bytes: buf.length, mime };
   }
 
-  async sendMedia({ to, url, caption, kind }: SendMediaParams) {
+  async sendMedia({ to, url, caption, kind, filename }: SendMediaParams) {
     // Só imagem/vídeo/documento aceitam `caption` na Cloud API. Áudio e sticker
     // NÃO — mandar caption (mesmo string vazia) faz a Meta rejeitar o envio.
     const supportsCaption = kind === "image" || kind === "video" || kind === "document";
@@ -156,6 +156,8 @@ export class MetaProvider implements ChannelProvider {
       void logEvent("error", "meta", `uploadMedia FALHOU (${kind}) -> fallback LINK: ${(e as Error)?.message}`, { kind, method: "link", url, error: (e as Error)?.message }, this.orgId);
     }
     if (supportsCaption && caption) media.caption = caption;
+    // Documento SEM filename aparece no WhatsApp com o nome gerado do storage.
+    if (kind === "document" && filename) media.filename = filename;
     const r = await this.graph(`${this.phoneNumberId}/messages`, {
       messaging_product: "whatsapp",
       to,

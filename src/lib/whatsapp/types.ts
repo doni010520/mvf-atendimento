@@ -11,6 +11,8 @@ export interface SendMediaParams {
   to: string;
   url: string;
   caption?: string;
+  /** Nome de exibição do DOCUMENTO no WhatsApp (senão o cliente vê o nome gerado do storage). */
+  filename?: string;
   kind: "image" | "audio" | "video" | "document" | "sticker";
   replyId?: string;
 }

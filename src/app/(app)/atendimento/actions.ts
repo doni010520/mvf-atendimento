@@ -931,7 +931,9 @@ export async function sendMediaMessage(formData: FormData) {
 
   try {
     const to = recipientOf(conv);
-    const res = await getProvider(channel as Channel).sendMedia({ to, url: publicUrl, caption, kind });
+    // filename = nome ORIGINAL do arquivo — sem ele o cliente vê o nome gerado
+    // do storage no documento (ex.: "abc123-1754....pdf").
+    const res = await getProvider(channel as Channel).sendMedia({ to, url: publicUrl, caption, kind, filename: file.name || undefined });
     await supabase.from("messages").update({ status: "sent", external_id: res.externalId ?? null }).eq("id", msg!.id);
   } catch (e) {
     console.error("sendMedia error", e);
@@ -1740,7 +1742,7 @@ export async function sgpSendBoleto(conversationId: string, contrato: number): P
       body: caption, media_url: pdfUrl, status: "pending",
     }).select("id").single();
     try {
-      const res = await provider.sendMedia({ to, url: pdfUrl, caption, kind: "document" });
+      const res = await provider.sendMedia({ to, url: pdfUrl, caption, kind: "document", filename: `Boleto MVF NET - fatura ${f.fatura}.pdf` });
       await supabase.from("messages").update({ status: "sent", external_id: res.externalId ?? null }).eq("id", msg!.id);
       await supabase.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conversationId);
       void logEvent("info", "atendente", `${session.profile?.name ?? "Atendente"} enviou boleto PDF (contrato ${contrato}, fatura ${f.fatura}${venc ? `, venc. ${venc}` : ""})`, { conversationId, userId: session.userId, action: "enviar_boleto", fatura: f.fatura }, orgId);
@@ -1821,7 +1823,7 @@ export async function sgpSendContrato(conversationId: string, contrato: number):
     body: caption, media_url: pdfUrl, status: "pending",
   }).select("id").single();
   try {
-    const res = await provider.sendMedia({ to, url: pdfUrl, caption, kind: "document" });
+    const res = await provider.sendMedia({ to, url: pdfUrl, caption, kind: "document", filename: `Contrato MVF NET - ${contrato}.pdf` });
     await supabase.from("messages").update({ status: "sent", external_id: res.externalId ?? null }).eq("id", msg!.id);
     await supabase.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conversationId);
     void logEvent("info", "atendente", `${session.profile?.name ?? "Atendente"} enviou o CONTRATO em PDF (contrato ${contrato})`, { conversationId, userId: session.userId, action: "enviar_contrato", contrato }, orgId);

@@ -222,10 +222,15 @@ export class UazapiProvider implements ChannelProvider {
     return { externalId: r?.id ?? r?.messageId ?? r?.messageid };
   }
 
-  async sendMedia({ to, url, caption, kind, replyId }: SendMediaParams) {
+  async sendMedia({ to, url, caption, kind, replyId, filename }: SendMediaParams) {
     const r = await this.req("/send/media", {
       method: "POST",
-      body: JSON.stringify({ number: to, type: kind, file: url, text: caption, ...(replyId ? { replyid: replyId } : {}) }),
+      // docName: nome de exibição do documento (senão o cliente vê o nome do storage).
+      body: JSON.stringify({
+        number: to, type: kind, file: url, text: caption,
+        ...(kind === "document" && filename ? { docName: filename } : {}),
+        ...(replyId ? { replyid: replyId } : {}),
+      }),
     });
     return { externalId: r?.id ?? r?.messageId ?? r?.messageid };
   }
