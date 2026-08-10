@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { X, CheckCircle2, ArrowRightLeft, Send, Check } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
-import { PRESENCE_CHANNEL } from "@/components/presence-tracker";
+import { usePresenceOnline } from "@/components/presence-tracker";
 import type { Tag, Profile, Department } from "@/lib/types";
 
 function Overlay({ children, onCancel }: { children: React.ReactNode; onCancel: () => void }) {
@@ -188,17 +187,7 @@ export function TransferModal({
   const [customerMessage, setCustomerMessage] = useState("");
   // Presença REAL via Realtime (quem está com o app aberto) — profiles.status
   // é um campo manual do cadastro e deixava todo mundo "offline" mesmo logado.
-  const [onlineIds, setOnlineIds] = useState<Set<string>>(new Set());
-  useEffect(() => {
-    const supabase = createClient();
-    const ch = supabase.channel(PRESENCE_CHANNEL, { config: { presence: { key: "viewer-transfer" } } });
-    ch.on("presence", { event: "sync" }, () => {
-      setOnlineIds(new Set(Object.keys(ch.presenceState())));
-    }).subscribe();
-    return () => {
-      supabase.removeChannel(ch);
-    };
-  }, []);
+  const onlineIds = usePresenceOnline();
 
   const selectable = agents.filter((a) => a.id !== currentUserId);
   const online = selectable.filter((a) => onlineIds.has(a.id));

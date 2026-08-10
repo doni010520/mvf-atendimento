@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, X, Pencil, Trash2 } from "lucide-react";
 import { Button, Card } from "@/components/ui";
-import { createClient } from "@/lib/supabase/client";
-import { PRESENCE_CHANNEL } from "@/components/presence-tracker";
+import { usePresenceOnline } from "@/components/presence-tracker";
 import { createAgent, updateAgent, deleteAgent } from "@/app/(app)/atendentes/actions";
 import type { Profile, Department } from "@/lib/types";
 
@@ -23,18 +22,7 @@ export function AgentsClient({ agents, departments }: { agents: Profile[]; depar
   const [error, setError] = useState<string | null>(null);
   // Presença REAL (quem está com o app aberto agora) — antes a bolinha vinha do
   // campo manual profiles.status e todo mundo aparecia offline mesmo logado.
-  const [onlineIds, setOnlineIds] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    const supabase = createClient();
-    const ch = supabase.channel(PRESENCE_CHANNEL, { config: { presence: { key: `viewer` } } });
-    ch.on("presence", { event: "sync" }, () => {
-      setOnlineIds(new Set(Object.keys(ch.presenceState()).filter((k) => k !== "viewer")));
-    }).subscribe();
-    return () => {
-      supabase.removeChannel(ch);
-    };
-  }, []);
+  const onlineIds = usePresenceOnline();
 
   const deptName = (id: string | null) => departments.find((d) => d.id === id)?.name ?? "Sem departamento";
 
