@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X, CheckCircle2, ArrowRightLeft, Send, Check } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import { PRESENCE_CHANNEL } from "@/components/presence-tracker";
 import type { Tag, Profile, Department } from "@/lib/types";
 
 function Overlay({ children, onCancel }: { children: React.ReactNode; onCancel: () => void }) {
@@ -184,10 +186,23 @@ export function TransferModal({
   const [departmentId, setDepartmentId] = useState<string | null>(null);
   const [internalNote, setInternalNote] = useState("");
   const [customerMessage, setCustomerMessage] = useState("");
+  // Presença REAL via Realtime (quem está com o app aberto) — profiles.status
+  // é um campo manual do cadastro e deixava todo mundo "offline" mesmo logado.
+  const [onlineIds, setOnlineIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    const supabase = createClient();
+    const ch = supabase.channel(PRESENCE_CHANNEL, { config: { presence: { key: "viewer-transfer" } } });
+    ch.on("presence", { event: "sync" }, () => {
+      setOnlineIds(new Set(Object.keys(ch.presenceState())));
+    }).subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, []);
 
   const selectable = agents.filter((a) => a.id !== currentUserId);
-  const online = selectable.filter((a) => a.status === "online");
-  const offline = selectable.filter((a) => a.status !== "online");
+  const online = selectable.filter((a) => onlineIds.has(a.id));
+  const offline = selectable.filter((a) => !onlineIds.has(a.id));
 
   const canConfirm =
     mode === "person" ? !!userId : mode === "team" ? userIds.length > 0 : !!departmentId;
@@ -256,7 +271,7 @@ export function TransferModal({
                   {userIds.includes(a.id) && <Check size={11} />}
                 </span>
                 <span
-                  className={`h-2 w-2 rounded-full ${a.status === "online" ? "bg-green-500" : "bg-gray-300"}`}
+                  className={`h-2 w-2 rounded-full ${onlineIds.has(a.id) ? "bg-green-500" : "bg-gray-300"}`}
                 />
                 <span className="text-ink">{a.name || a.email}</span>
               </button>
@@ -291,7 +306,7 @@ export function TransferModal({
                     >
                       <span
                         className={`h-2 w-2 rounded-full ${
-                          a.status === "online" ? "bg-green-500" : "bg-gray-300"
+                          onlineIds.has(a.id) ? "bg-green-500" : "bg-gray-300"
                         }`}
                       />
                       <span className="text-ink">{a.name || a.email}</span>

@@ -3,6 +3,7 @@ import { Sidebar } from "@/components/sidebar";
 import { Topbar } from "@/components/topbar";
 import { Toaster } from "@/components/toast";
 import { VersionWatcher } from "@/components/version-watcher";
+import { PresenceTracker } from "@/components/presence-tracker";
 import { getSession, isAdmin } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
@@ -72,6 +73,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </div>
       <Toaster />
       <VersionWatcher />
+      <PresenceTracker userId={userId} />
     </div>
   );
 }

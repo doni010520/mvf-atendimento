@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, X, Pencil, Trash2 } from "lucide-react";
 import { Button, Card } from "@/components/ui";
+import { createClient } from "@/lib/supabase/client";
+import { PRESENCE_CHANNEL } from "@/components/presence-tracker";
 import { createAgent, updateAgent, deleteAgent } from "@/app/(app)/atendentes/actions";
 import type { Profile, Department } from "@/lib/types";
 
@@ -12,7 +14,6 @@ const ROLES = [
   { value: "supervisor", label: "Supervisor" },
   { value: "agent", label: "Atendente" },
 ];
-const STATUS_DOT: Record<string, string> = { online: "bg-green-500", away: "bg-amber-500", offline: "bg-gray-400" };
 
 export function AgentsClient({ agents, departments }: { agents: Profile[]; departments: Department[] }) {
   const router = useRouter();
@@ -20,6 +21,20 @@ export function AgentsClient({ agents, departments }: { agents: Profile[]; depar
   const [current, setCurrent] = useState<Profile | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Presença REAL (quem está com o app aberto agora) — antes a bolinha vinha do
+  // campo manual profiles.status e todo mundo aparecia offline mesmo logado.
+  const [onlineIds, setOnlineIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const supabase = createClient();
+    const ch = supabase.channel(PRESENCE_CHANNEL, { config: { presence: { key: `viewer` } } });
+    ch.on("presence", { event: "sync" }, () => {
+      setOnlineIds(new Set(Object.keys(ch.presenceState()).filter((k) => k !== "viewer")));
+    }).subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, []);
 
   const deptName = (id: string | null) => departments.find((d) => d.id === id)?.name ?? "Sem departamento";
 
@@ -61,7 +76,7 @@ export function AgentsClient({ agents, departments }: { agents: Profile[]; depar
           <Card key={a.id} className="flex items-center gap-3 py-3">
             <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-gray-200 text-xs font-semibold text-gray-600">
               {(a.name || a.email || "?").slice(0, 2).toUpperCase()}
-              <span className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white ${STATUS_DOT[a.status]}`} />
+              <span className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white ${onlineIds.has(a.id) ? "bg-green-500" : "bg-gray-400"}`} />
             </div>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium text-ink">{a.name || "(sem nome)"}</p>
@@ -94,10 +109,8 @@ export function AgentsClient({ agents, departments }: { agents: Profile[]; depar
               <Sel name="role" label="Nível de acesso" defaultValue={current?.role ?? "agent"} options={ROLES} />
               <Sel name="department_id" label="Departamento" defaultValue={current?.department_id ?? ""}
                 options={[{ value: "", label: "Sem departamento" }, ...departments.map((d) => ({ value: d.id, label: d.name }))]} />
-              {mode === "edit" && (
-                <Sel name="status" label="Status" defaultValue={current?.status ?? "offline"}
-                  options={[{ value: "online", label: "Online" }, { value: "away", label: "Ausente" }, { value: "offline", label: "Offline" }]} />
-              )}
+              {/* O status Online/Offline agora é automático (presença real de
+                  quem está com o app aberto) — o seletor manual saiu. */}
               {error && <p className="text-xs text-danger">{error}</p>}
               <div className="flex justify-end gap-2 pt-1">
                 <Button type="button" variant="ghost" onClick={() => setMode(null)}>Cancelar</Button>
