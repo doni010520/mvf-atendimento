@@ -845,6 +845,11 @@ export async function sendMediaMessage(formData: FormData) {
   const caption = String(formData.get("caption") || "").trim();
   const file = formData.get("file") as File | null;
   if (!conversationId || !file || file.size === 0) return { ok: false };
+  // Teto REAL de armazenamento: o Supabase Storage rejeita >50MB (413). Barrar
+  // aqui com resposta amigável — sem isso o throw virava página de erro.
+  if (file.size > 48 * 1024 * 1024) {
+    return { ok: false, error: `Arquivo muito grande (${(file.size / 1024 / 1024).toFixed(0)}MB). O máximo é 48MB — comprima o arquivo ou envie em partes.` };
+  }
 
   const supabase = await createClient();
   const { data: conv } = await supabase
@@ -894,7 +899,17 @@ export async function sendMediaMessage(formData: FormData) {
   const up = await svc.storage
     .from("media")
     .upload(path, buf, { contentType, upsert: true });
-  if (up.error) throw new Error("Falha ao subir o arquivo.");
+  if (up.error) {
+    // throw aqui derrubava o atendente numa página de erro; devolve amigável.
+    void logEvent("error", "atendente", `upload de mídia falhou (${(buf.length / 1024 / 1024).toFixed(1)}MB ${contentType}): ${up.error.message?.slice(0, 120)}`, { conversationId }, session.organization.id);
+    const tooBig = /too large|exceeded|413/i.test(up.error.message ?? "");
+    return {
+      ok: false,
+      error: tooBig
+        ? "Arquivo grande demais para o armazenamento (máx. 48MB). Comprima o arquivo ou envie em partes."
+        : "Falha ao subir o arquivo. Tente novamente em instantes.",
+    };
+  }
   const publicUrl = svc.storage.from("media").getPublicUrl(path).data.publicUrl;
 
   // Registra a mensagem (pendente) e envia pelo provedor.

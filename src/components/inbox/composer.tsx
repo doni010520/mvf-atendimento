@@ -131,10 +131,11 @@ export function Composer({
 
   function stageFile(file: File, asSticker = false) {
     // Limites de tamanho ANTES do upload (falha clara em vez de sumiço):
-    // 64MB = teto do transporte (bodySizeLimit); 16MB = teto de VÍDEO da Meta.
+    // 48MB = teto REAL de armazenamento (o Supabase Storage rejeita >50MB com
+    // 413 e o envio morria numa página de erro); 16MB = teto de VÍDEO da Meta.
     const mb = file.size / (1024 * 1024);
-    if (mb > 64) {
-      alert(`Arquivo muito grande (${mb.toFixed(0)}MB). O máximo é 64MB.`);
+    if (mb > 48) {
+      alert(`Arquivo muito grande (${mb.toFixed(0)}MB). O máximo é 48MB — comprima o arquivo ou envie em partes.`);
       return;
     }
     if (isMeta && file.type.startsWith("video/") && mb > 16) {
