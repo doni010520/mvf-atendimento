@@ -429,6 +429,37 @@ export type SgpMemo = { cpf?: string; integrationId?: string; contratos: { id: n
 const memoContratos = (contratos: { contrato: number; plano?: string; valorEmAberto?: number; titulosAReceber?: number }[]) =>
   contratos.filter((c) => c.contrato).map((c) => ({ id: c.contrato, plano: c.plano, valorEmAberto: c.valorEmAberto, titulosAReceber: c.titulosAReceber }));
 
+/**
+ * CRM AUTOMÁTICO (pedido do dono, 10/08/2026): quando o bot valida o cliente no
+ * SGP, o cadastro do CONTATO é atualizado na hora — o atendente abre o painel
+ * já com CPF/contrato/plano/endereço preenchidos, sem copia-e-cola. O nome só é
+ * preenchido se o contato ainda não tiver um (não sobrescreve o que o atendente
+ * ou o WhatsApp já definiram); os campos de contrato só entram quando o cliente
+ * tem UM contrato (com vários, o atendente escolhe no seletor do painel).
+ */
+async function syncContactFromSgp(
+  db: AiTurnContext["db"],
+  conversationId: string,
+  dados: { nome?: string; cpfcnpj?: string; contratos: { contrato: number; status?: string; plano?: string; endereco?: string }[] },
+): Promise<void> {
+  const { data: conv } = await db.from("conversations").select("contact_id").eq("id", conversationId).maybeSingle();
+  if (!conv?.contact_id) return;
+  const { data: ct } = await db.from("contacts").select("id, name, custom_fields").eq("id", conv.contact_id).maybeSingle();
+  if (!ct) return;
+  const cf = { ...((ct.custom_fields as Record<string, unknown> | null) ?? {}) };
+  if (dados.cpfcnpj) cf.cpfcnpj = dados.cpfcnpj;
+  const unico = dados.contratos.length === 1 ? dados.contratos[0] : null;
+  if (unico) {
+    if (unico.contrato) cf.contrato = String(unico.contrato);
+    if (unico.plano) cf.plano = unico.plano;
+    if (unico.status) cf.status_cliente = unico.status;
+    if (unico.endereco) cf.endereco = unico.endereco;
+  }
+  const upd: Record<string, unknown> = { custom_fields: cf };
+  if (dados.nome && !String(ct.name ?? "").trim()) upd.name = dados.nome;
+  await db.from("contacts").update(upd).eq("id", ct.id);
+}
+
 /** Carrega o memo do SGP de conversations.variables.__sgp (vazio se não houver). */
 async function loadSgpMemo(db: AiTurnContext["db"], conversationId: string): Promise<SgpMemo> {
   try {
@@ -1000,6 +1031,16 @@ export async function runAiTurn(ctx: AiTurnContext): Promise<AiTurnResult> {
           }).then(() => {}, () => {});
         }
         const result = await executeTool(tc.function.name, args, sgpList, defaultSgpId, sgpMemo);
+        // CRM automático: cliente validado pelo bot → cadastro do contato
+        // atualizado na hora (CPF, contrato, plano, endereço) p/ o atendente.
+        if (tc.function.name === "consultar_cliente") {
+          const r = result as { encontrado?: boolean; nome?: string; cpfcnpj?: string; contratos?: { contrato: number; status?: string; plano?: string; endereco?: string }[] };
+          if (r?.encontrado) {
+            void syncContactFromSgp(ctx.db, ctx.conversationId, { nome: r.nome, cpfcnpj: r.cpfcnpj, contratos: r.contratos ?? [] }).catch((e) =>
+              console.error("[ai] syncContactFromSgp", e),
+            );
+          }
+        }
         const failed = !!(result && typeof result === "object" && ("error" in result || "erro" in result));
         void logEvent(failed ? "error" : "info", "ai", `Ferramenta ${tc.function.name}${failed ? " falhou" : ""}`, {
           conversationId: ctx.conversationId,
