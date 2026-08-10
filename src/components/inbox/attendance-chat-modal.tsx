@@ -11,7 +11,6 @@ import {
   markConversationRead,
   sendMessage,
   sendInternalMessage,
-  sendMediaMessage,
   sendLocationMessage,
   sendContactMessage,
   sendTemplateMessage,
@@ -25,6 +24,7 @@ import {
   toggleMute,
   setConversationAi,
 } from "@/app/(app)/atendimento/actions";
+import { uploadMediaRaw } from "@/lib/upload-media";
 import type { ConversationOverview, Message, Tag, Profile, Department } from "@/lib/types";
 
 type TemplateOpt = { name: string; language: string; bodyText: string; varCount: number };
@@ -165,15 +165,10 @@ export function AttendanceChatModal({
   }
 
   function handleSendFile(file: File, asSticker?: boolean) {
-    const fd = new FormData();
-    fd.set("conversationId", convId);
-    fd.set("file", file);
-    const caption = (file as File & { caption?: string }).caption;
-    if (caption) fd.set("caption", caption);
-    if (asSticker) fd.set("kind", "sticker");
     startTransition(async () => {
-      const res = await sendMediaMessage(fd);
-      if (res && res.ok === false && "error" in res && res.error) alert(res.error);
+      // Envio FORA de server action: corpo CRU + timeout (ver lib/upload-media).
+      const res = await uploadMediaRaw(convId, file, asSticker);
+      if (res && res.ok === false && res.error) alert(res.error);
       await refetch();
     });
   }

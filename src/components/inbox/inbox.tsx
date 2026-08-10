@@ -36,7 +36,6 @@ function playPing() {
 }
 import {
   sendMessage,
-  sendMediaMessage,
   sendLocationMessage,
   sendContactMessage,
   reactToMessage,
@@ -60,6 +59,7 @@ import {
   getGroupInfo,
   sendTemplateMessage,
 } from "@/app/(app)/atendimento/actions";
+import { uploadMediaRaw } from "@/lib/upload-media";
 import { CloseModal, TransferModal } from "./attendance-modals";
 import { toast } from "@/components/toast";
 import type { ConversationOverview, Message, Tag, Profile, Department, Channel } from "@/lib/types";
@@ -608,18 +608,13 @@ export function Inbox({
   function handleSendFile(file: File, asSticker?: boolean) {
     if (!selectedId) return;
     const convId = selectedId;
-    const fd = new FormData();
-    fd.set("conversationId", convId);
-    fd.set("file", file);
-    // Legenda vinda do modal de preview (propriedade custom no File).
-    const caption = (file as File & { caption?: string }).caption;
-    if (caption) fd.set("caption", caption);
-    if (asSticker) fd.set("kind", "sticker");
     startTransition(async () => {
-      const res = await sendMediaMessage(fd);
+      // Envio FORA de server action: corpo CRU + metadados na query (o caminho
+      // multipart→action falhava por teto/parser e travava sem timeout).
+      const res = await uploadMediaRaw(convId, file, asSticker);
       // Falha ao preparar/enviar (ex.: conversão de áudio) precisa aparecer —
       // antes o erro era silencioso e o atendente achava que tinha enviado.
-      if (res && res.ok === false && "error" in res && res.error) alert(res.error);
+      if (res && res.ok === false && res.error) alert(res.error);
       const msgs = await fetchMessages(convId);
       setMessagesByConv((prev) => ({ ...prev, [convId]: msgs }));
       setConversations((prev) => {
