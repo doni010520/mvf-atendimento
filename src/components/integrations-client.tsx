@@ -56,14 +56,19 @@ export function IntegrationsClient({ integrations }: { integrations: Integration
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium uppercase text-ink">{it.type}</p>
               <p className="truncate text-xs text-ink-soft">{String((it.config as { url?: string })?.url ?? "")}</p>
-              <p className="truncate text-[11px] text-ink-soft">
-                PIX:{" "}
+              <button
+                onClick={() => openPix(it)}
+                className="group flex max-w-full items-center gap-1 truncate text-[11px] text-ink-soft hover:text-ink"
+                title="Alterar o modo de pagamento PIX desta unidade"
+              >
+                <span>PIX:</span>
                 {String((it.config as { pix_chave_manual?: string })?.pix_chave_manual ?? "").trim() ? (
-                  <span className="font-medium text-amber-700">chave manual — {String((it.config as { pix_chave_manual?: string }).pix_chave_manual)}</span>
+                  <span className="truncate font-medium text-amber-700">chave manual — {String((it.config as { pix_chave_manual?: string }).pix_chave_manual)}</span>
                 ) : (
-                  <span className="font-medium text-green-700">copia-e-cola do boleto (SGP)</span>
+                  <span className="truncate font-medium text-green-700">copia-e-cola do boleto (SGP)</span>
                 )}
-              </p>
+                <span className="shrink-0 rounded bg-brand-light px-1.5 py-0.5 font-medium text-brand group-hover:underline">alterar</span>
+              </button>
             </div>
             <button onClick={() => openPix(it)} className="rounded p-1.5 text-ink-soft hover:bg-brand-light hover:text-brand" title="Pagamento PIX desta unidade">
               <QrCode size={15} />
