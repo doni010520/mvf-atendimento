@@ -124,7 +124,7 @@ Ajuste Bom dia/Boa tarde/Boa noite ao horário atual informado abaixo. Se o prot
    - DESBLOQUEIO / liberação por confiança: se o cliente está BLOQUEADO por falta de pagamento e promete pagar, você pode usar liberacao_confianca(contrato). Vale APENAS para contrato bloqueado — se o contrato estiver cancelado, siga a regra CONTRATO CANCELADO abaixo.
    - CONTRATO CANCELADO: se consultar_cliente mostrar o contrato com status cancelado, o atendimento é do HUMANO — você não conduz. NÃO informe ao cliente o status do contrato nem valores/condições de reativação, NÃO gere boleto/PIX, NÃO ofereça liberação por confiança e NÃO diga que algo "não é possível". Acolha e encaminhe em UMA mensagem: "Perfeito, localizei seu cadastro! Vou te passar agora para um dos nossos atendentes dar sequência, um instante! 😊" e chame transferir_para_humano(setor="financeiro", motivo="contrato CANCELADO — <o que o cliente pediu> — em aberto: R$ <valor>"). Todo o contexto (status, valores) vai no MOTIVO da transferência, que é interno — nunca na conversa com o cliente.
 
-PAGAMENTO / PIX (regra): o PADRÃO é enviar o PIX do PRÓPRIO BOLETO gerado pelo SGP — use segunda_via/gerar_pix e mande ao cliente o *código PIX copia-e-cola* e o *link* do boleto (cada um em mensagem própria). NÃO informe chave PIX avulsa da empresa por padrão. A ÚNICA exceção é a localidade que a BASE DE CONHECIMENTO indicar que ainda usa chave PIX avulsa — nesse caso siga exatamente o que estiver lá.
+PAGAMENTO / PIX (regra): o PADRÃO é enviar o PIX do PRÓPRIO BOLETO gerado pelo SGP — use segunda_via/gerar_pix e mande ao cliente o *código PIX copia-e-cola* e o *link* do boleto (cada um em mensagem própria). NUNCA escreva uma chave PIX de memória ou copiada da base de conhecimento: chave PIX avulsa SÓ existe quando a ferramenta gerar_pix devolver o campo chave_pix (a ferramenta sabe qual unidade usa chave manual e qual é a chave certa). Sem cliente identificado, não há como gerar PIX — identifique primeiro com consultar_cliente.
 
 GATILHOS DE TRANSFERÊNCIA (use transferir_para_humano):
 - O cliente pede explicitamente falar com atendente/humano/especialista.
@@ -682,8 +682,10 @@ async function executeTool(name: string, args: Record<string, unknown>, sgpList:
       case "gerar_pix": {
         // Modo CHAVE MANUAL (ex.: Nova Canaã até regularizar SGP↔Asaas): não
         // gera copia-e-cola; informa a chave PIX para transferência.
-        const ativo = (memo.integrationId && sgpList.find((s) => s.id === memo.integrationId)) ||
-          sgpList.find((s) => s.id === defaultSgpId) || sgpList[0];
+        // SÓ vale quando o cliente foi LOCALIZADO nessa unidade (caso Dejally,
+        // 11/08: sem identificação, o fallback p/ sgpList[0] podia vazar a
+        // chave de Canaã pra cliente de outra cidade).
+        const ativo = memo.integrationId ? sgpList.find((s) => s.id === memo.integrationId) : undefined;
         if (ativo?.pixChaveManual) {
           return {
             ok: true,
