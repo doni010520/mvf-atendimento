@@ -691,7 +691,7 @@ async function executeTool(name: string, args: Record<string, unknown>, sgpList:
             ok: true,
             chave_pix: ativo.pixChaveManual,
             instrucao:
-              `O PIX copia-e-cola está TEMPORARIAMENTE indisponível nesta unidade. Informe ao cliente a CHAVE PIX (CNPJ) para pagamento por transferência: *${ativo.pixChaveManual}* (MVF NET). ` +
+              `O PIX copia-e-cola está TEMPORARIAMENTE indisponível nesta unidade. Informe ao cliente a CHAVE PIX para pagamento por transferência: *${ativo.pixChaveManual}* (MVF NET). ` +
               `Diga o VALOR da fatura em aberto (use faturas_em_aberto se ainda não souber) e peça para ENVIAR O COMPROVANTE aqui na conversa após o pagamento.`,
           };
         }

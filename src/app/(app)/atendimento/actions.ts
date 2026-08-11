@@ -1580,7 +1580,7 @@ export async function sgpSendPix(conversationId: string, contrato: number): Prom
     const val = typeof alvo.valor === "number" ? `R$ ${alvo.valor.toFixed(2).replace(".", ",")}` : null;
     const ref = [val, venc ? `venc. ${venc}` : null].filter(Boolean).join(" — ");
     const texto =
-      `Para pagamento da sua fatura${ref ? ` (${ref})` : ""}, faça um PIX para a chave (CNPJ):
+      `Para pagamento da sua fatura${ref ? ` (${ref})` : ""}, faça um PIX para a chave:
 
 *${chaveManual}*
 MVF NET
