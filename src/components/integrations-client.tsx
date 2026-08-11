@@ -2,15 +2,38 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, X, Trash2, Plug, CheckCircle2, AlertCircle } from "lucide-react";
+import { Plus, X, Trash2, Plug, CheckCircle2, AlertCircle, QrCode } from "lucide-react";
 import { Button, Card } from "@/components/ui";
-import { createIntegration, deleteIntegration, testIntegration } from "@/app/(app)/integracoes/actions";
+import { createIntegration, deleteIntegration, testIntegration, updateIntegrationPix } from "@/app/(app)/integracoes/actions";
 import type { Integration } from "@/lib/types";
 
 export function IntegrationsClient({ integrations }: { integrations: Integration[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
+  // Modal "Pagamento PIX" da unidade (por INTEGRAÇÃO, não por cidade — cidades
+  // da mesma base SGP herdam; unidade nova = nova integração com a opção junto).
+  const [pixFor, setPixFor] = useState<Integration | null>(null);
+  const [pixMode, setPixMode] = useState<"boleto" | "manual">("boleto");
+  const [pixChave, setPixChave] = useState("");
+  const [pixSaving, setPixSaving] = useState(false);
+
+  function openPix(it: Integration) {
+    const chave = String((it.config as { pix_chave_manual?: string })?.pix_chave_manual ?? "").trim();
+    setPixMode(chave ? "manual" : "boleto");
+    setPixChave(chave);
+    setPixFor(it);
+  }
+  async function savePix() {
+    if (!pixFor) return;
+    if (pixMode === "manual" && !pixChave.trim()) { alert("Informe a chave PIX."); return; }
+    setPixSaving(true);
+    try {
+      const r = await updateIntegrationPix(pixFor.id, pixMode === "manual" ? pixChave.trim() : null);
+      alert(r.message);
+      if (r.ok) { setPixFor(null); router.refresh(); }
+    } finally { setPixSaving(false); }
+  }
 
   async function submit(fd: FormData) {
     setPending(true);
@@ -33,7 +56,18 @@ export function IntegrationsClient({ integrations }: { integrations: Integration
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium uppercase text-ink">{it.type}</p>
               <p className="truncate text-xs text-ink-soft">{String((it.config as { url?: string })?.url ?? "")}</p>
+              <p className="truncate text-[11px] text-ink-soft">
+                PIX:{" "}
+                {String((it.config as { pix_chave_manual?: string })?.pix_chave_manual ?? "").trim() ? (
+                  <span className="font-medium text-amber-700">chave manual — {String((it.config as { pix_chave_manual?: string }).pix_chave_manual)}</span>
+                ) : (
+                  <span className="font-medium text-green-700">copia-e-cola do boleto (SGP)</span>
+                )}
+              </p>
             </div>
+            <button onClick={() => openPix(it)} className="rounded p-1.5 text-ink-soft hover:bg-brand-light hover:text-brand" title="Pagamento PIX desta unidade">
+              <QrCode size={15} />
+            </button>
             <button onClick={async () => {
               const r = await testIntegration(it.id);
               alert(r.message);
@@ -44,6 +78,49 @@ export function IntegrationsClient({ integrations }: { integrations: Integration
           </Card>
         ))}
       </div>
+
+      {pixFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-card bg-surface p-6 shadow-xl">
+            <div className="mb-1 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-ink">Pagamento PIX da unidade</h2>
+              <button onClick={() => setPixFor(null)} className="text-ink-soft hover:text-ink"><X size={18} /></button>
+            </div>
+            <p className="mb-4 truncate text-xs text-ink-soft">{String((pixFor.config as { url?: string })?.url ?? "")}</p>
+            <div className="space-y-2">
+              <label className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 text-sm ${pixMode === "boleto" ? "border-brand bg-brand-light/40" : "border-border"}`}>
+                <input type="radio" name="pixmode" checked={pixMode === "boleto"} onChange={() => setPixMode("boleto")} className="mt-0.5" />
+                <span>
+                  <span className="font-medium text-ink">Copia-e-cola do boleto (SGP/Asaas)</span>
+                  <span className="block text-xs text-ink-soft">O cliente recebe o código PIX gerado pelo próprio boleto — pagamento dá baixa automática. Recomendado.</span>
+                </span>
+              </label>
+              <label className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 text-sm ${pixMode === "manual" ? "border-brand bg-brand-light/40" : "border-border"}`}>
+                <input type="radio" name="pixmode" checked={pixMode === "manual"} onChange={() => setPixMode("manual")} className="mt-0.5" />
+                <span className="min-w-0 flex-1">
+                  <span className="font-medium text-ink">Chave PIX manual</span>
+                  <span className="block text-xs text-ink-soft">O cliente recebe esta chave para transferir (sem baixa automática — o financeiro confere pelo comprovante).</span>
+                  {pixMode === "manual" && (
+                    <input
+                      value={pixChave}
+                      onChange={(e) => setPixChave(e.target.value)}
+                      placeholder="CNPJ, celular, e-mail ou chave aleatória"
+                      className="mt-2 w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-brand"
+                    />
+                  )}
+                </span>
+              </label>
+            </div>
+            <p className="mt-3 text-[11px] text-ink-soft">
+              Vale para TODOS os clientes localizados nesta unidade SGP (todas as cidades dela). O robô e o botão PIX do atendente seguem esta configuração na hora.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={() => setPixFor(null)}>Cancelar</Button>
+              <Button onClick={savePix} disabled={pixSaving}>{pixSaving ? "Salvando..." : "Salvar"}</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
