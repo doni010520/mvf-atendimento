@@ -106,12 +106,14 @@ export function ChatThread({
     }
     return null;
   })();
-  // Enquanto as mensagens ainda não carregaram (lista vazia ao abrir a conversa),
-  // NÃO assumir janela fechada — senão a barra de templates "pisca" (aparece e
-  // some) até o fetch terminar. Só decidimos "fechada" com mensagens carregadas.
+  // Anti-flicker SEM furo: lista local vazia pode ser (a) fetch ainda carregando
+  // — aí NÃO assumimos fechada (a barra piscava) — ou (b) conversa REALMENTE
+  // vazia (iniciar contato): janela FECHADA por definição — era por aqui que o
+  // atendente "chamava" cliente digitando livre e caía no "não entregue".
+  const carregando = messages.length === 0 && !!conversation.last_message_at;
   const windowOpen =
     !isMeta ||
-    messages.length === 0 ||
+    carregando ||
     (!!lastInboundAt && Date.now() - new Date(lastInboundAt).getTime() < 24 * 3600 * 1000);
 
   return (

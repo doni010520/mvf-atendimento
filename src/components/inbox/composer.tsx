@@ -452,8 +452,12 @@ export function Composer({
       {isMeta && !windowOpen && !internalMode ? (
         <div className="border-t border-border bg-surface p-3">
           <div className="mb-2 flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
-            <span>⚠️</span>
-            <span>Janela de 24h encerrada (canal <b>API Oficial</b>). Só é possível enviar um <b>modelo aprovado</b> para reabrir a conversa.</span>
+            <span>⏰</span>
+            <span>
+              Está tudo certo com o sistema! É uma regra do WhatsApp <b>API Oficial</b>: como o cliente não escreveu nas
+              últimas 24h, a conversa começa (ou reabre) com um <b>modelo aprovado</b> — escolha um abaixo 👇. Assim que o
+              cliente responder, vocês conversam livremente.
+            </span>
           </div>
           {visibleTemplates.length === 0 ? (
             <p className="text-xs text-ink-soft">
