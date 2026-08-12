@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { UserCheck, CheckCircle2, Users, Bell, BellOff, Reply, X, ArrowRightLeft, Hash, ArrowLeft, Bot, BotOff, StickyNote, Eye, EyeOff, RotateCcw } from "lucide-react";
 import { MessageBubble } from "./message-bubble";
 import { Composer } from "./composer";
@@ -234,18 +234,52 @@ export function ChatThread({
           for (const mm of messages) {
             if (mm.external_id) byExt.set(mm.external_id.split(":").pop()!, mm);
           }
-          return messages.map((m) => {
+          // Separador de dia ("Hoje"/"Ontem"/data): calculado NA HORA de desenhar,
+          // sobre a lista VISÍVEL (internas ocultas não podem abrir separador) e
+          // com a hora LOCAL do navegador — created_at é UTC e comparar a string
+          // ISO erraria o dia perto da meia-noite.
+          const visiveis = messages.filter((m) => !(m.is_internal && !showInternal));
+          const diaChave = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+          const rotuloDia = (iso: string) => {
+            const d = new Date(iso);
+            const hoje = new Date();
+            const ontem = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - 1);
+            if (diaChave(d) === diaChave(hoje)) return "Hoje";
+            if (diaChave(d) === diaChave(ontem)) return "Ontem";
+            const mesmoAno = d.getFullYear() === hoje.getFullYear();
+            return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "long", ...(mesmoAno ? {} : { year: "numeric" }) });
+          };
+          let diaAnterior: string | null = null;
+          const comSeparador = (m: Message, node: ReactNode) => {
+            const dia = diaChave(new Date(m.created_at));
+            const divisor =
+              dia !== diaAnterior ? (
+                <div className="flex justify-center py-2">
+                  <span className="rounded-full bg-gray-200/80 px-3 py-1 text-[11px] font-medium text-ink-soft shadow-sm">
+                    {rotuloDia(m.created_at)}
+                  </span>
+                </div>
+              ) : null;
+            diaAnterior = dia;
+            return (
+              <Fragment key={m.id}>
+                {divisor}
+                {node}
+              </Fragment>
+            );
+          };
+          return visiveis.map((m) => {
             if (m.is_internal) {
-              if (!showInternal) return null;
               // Mensagem do sistema (sem autor identificado) = aviso discreto centralizado.
               const isSystem = m.sender_type === "system" || (!m.author_name && !m.sender_id);
               if (isSystem) {
-                return (
-                  <div key={m.id} className="flex justify-center px-6 py-1">
+                return comSeparador(
+                  m,
+                  <div className="flex justify-center px-6 py-1">
                     <div className="max-w-md rounded-lg bg-amber-50 px-3 py-1.5 text-center text-xs text-amber-800 ring-1 ring-amber-100">
                       {m.body}
                     </div>
-                  </div>
+                  </div>,
                 );
               }
               const mine = !!currentUserId && m.sender_id === currentUserId;
@@ -253,8 +287,9 @@ export function ChatThread({
               const time = new Date(m.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
               // Destaca os "@Nome" no corpo.
               const parts = (m.body ?? "").split(/(@[^\s@]+(?:\s[^\s@]+)?)/g);
-              return (
-                <div key={m.id} className={`flex px-4 py-1 ${mine ? "justify-end" : "justify-start"}`}>
+              return comSeparador(
+                m,
+                <div className={`flex px-4 py-1 ${mine ? "justify-end" : "justify-start"}`}>
                   <div
                     className={`max-w-[78%] rounded-xl border-l-4 px-3 py-2 text-sm shadow-sm ${
                       iAmMentioned ? "border-amber-500 bg-amber-100 ring-1 ring-amber-300" : "border-amber-400 bg-amber-50"
@@ -275,7 +310,7 @@ export function ChatThread({
                     </p>
                     <div className="mt-0.5 text-right text-[10px] text-amber-600/70">{time}</div>
                   </div>
-                </div>
+                </div>,
               );
             }
             let quotedAuthor: string | null | undefined = m.reply_author;
@@ -287,9 +322,9 @@ export function ChatThread({
                 quotedExcerpt = q.body ?? (q.content_type !== "text" ? `[${q.content_type}]` : quotedExcerpt);
               }
             }
-            return (
+            return comSeparador(
+              m,
               <MessageBubble
-                key={m.id}
                 message={m}
                 isAdmin={isAdmin}
                 onReply={setReplyTo}
@@ -302,7 +337,7 @@ export function ChatThread({
                 onReplyPrivate={isGroup ? onReplyPrivate : undefined}
                 quotedAuthor={quotedAuthor}
                 quotedExcerpt={quotedExcerpt}
-              />
+              />,
             );
           });
         })()}
