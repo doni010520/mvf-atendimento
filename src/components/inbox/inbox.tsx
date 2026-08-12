@@ -152,6 +152,11 @@ export function Inbox({
     (extraConv && extraConv.id === selectedId ? extraConv : null) ??
     (selectedId === DRAFT_ID ? draft : null);
   const messages = selectedId ? messagesByConv[selectedId] ?? [] : [];
+  // Distingue "fetch das mensagens ainda não voltou" (chave ausente) de
+  // "conversa realmente vazia" ([]): o modo-template do canal oficial precisa
+  // aparecer JÁ na conversa nova (caso Tainá — last_message_at vem preenchido
+  // na criação e a heurística antiga achava que estava "carregando").
+  const messagesLoaded = !!selectedId && messagesByConv[selectedId] != null;
 
   // Carrega mensagens ao selecionar (se ainda não estiverem em cache) e marca como lida.
   async function selectConversation(id: string) {
@@ -810,6 +815,7 @@ export function Inbox({
           onBack={() => setSelectedId(null)}
           conversation={selected}
           messages={messages}
+          messagesLoaded={messagesLoaded}
           groupParticipants={groupParticipants}
           onSend={handleSend}
           onSendInternal={handleSendInternal}

@@ -42,9 +42,12 @@ export function ChatThread({
   templates,
   onSendTemplate,
   pending,
+  messagesLoaded = true,
 }: {
   conversation: ConversationOverview;
   messages: Message[];
+  /** false enquanto o fetch das mensagens da conversa ainda não retornou. */
+  messagesLoaded?: boolean;
   groupParticipants?: { name: string; phone: string }[];
   quickReplies?: { title: string; content: string; shortcut: string | null }[];
   templates?: { name: string; language: string; bodyText: string; varCount: number; channelId?: string | null }[];
@@ -106,14 +109,14 @@ export function ChatThread({
     }
     return null;
   })();
-  // Anti-flicker SEM furo: lista local vazia pode ser (a) fetch ainda carregando
-  // — aí NÃO assumimos fechada (a barra piscava) — ou (b) conversa REALMENTE
-  // vazia (iniciar contato): janela FECHADA por definição — era por aqui que o
-  // atendente "chamava" cliente digitando livre e caía no "não entregue".
-  const carregando = messages.length === 0 && !!conversation.last_message_at;
+  // Anti-flicker SEM furo: enquanto o fetch não voltou (messagesLoaded=false)
+  // NÃO assumimos fechada (a barra piscava). Conversa CARREGADA e vazia
+  // (iniciar contato) = janela FECHADA por definição → modo modelo. A
+  // heurística antiga usava last_message_at, mas conversa NOVA já nasce com
+  // ele preenchido (caso Tainá: modelos não apareciam ao chamar cliente).
   const windowOpen =
     !isMeta ||
-    carregando ||
+    !messagesLoaded ||
     (!!lastInboundAt && Date.now() - new Date(lastInboundAt).getTime() < 24 * 3600 * 1000);
 
   return (

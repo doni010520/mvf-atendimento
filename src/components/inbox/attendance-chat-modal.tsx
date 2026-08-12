@@ -75,6 +75,8 @@ export function AttendanceChatModal({
   // Cópia local para refletir toggles (mudo/IA/assumir) na hora no cabeçalho/ChatThread.
   const [conv, setConv] = useState<ConversationOverview>(conversation);
   const [messages, setMessages] = useState<Message[]>([]);
+  // false até o 1º fetch voltar — evita o modo-template piscar no modal.
+  const [messagesLoaded, setMessagesLoaded] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Message | null>(null);
@@ -104,7 +106,7 @@ export function AttendanceChatModal({
       if (document.hidden) return;
       try {
         const m = await fetchMessages(convId);
-        if (!cancel) setMessages(m);
+        if (!cancel) { setMessages(m); setMessagesLoaded(true); }
       } catch { /* silencioso */ }
     };
     load();
@@ -359,6 +361,7 @@ export function AttendanceChatModal({
           <ChatThread
             conversation={conv}
             messages={messages}
+            messagesLoaded={messagesLoaded}
             hideHeader
             agents={agents.map((a) => ({ id: a.id, name: a.name ?? "Atendente", avatar_url: a.avatar_url }))}
             currentUserId={userId}
