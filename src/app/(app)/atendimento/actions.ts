@@ -1414,9 +1414,17 @@ export async function sgpLookupByCpf(cpfcnpj: string): Promise<SgpLookupResult> 
 
 
 /** Contato (telefone/nome) da conversa — para desambiguar o dono de um contrato. */
-async function contatoDaConversa(supabase: Awaited<ReturnType<typeof createClient>>, conversationId: string): Promise<{ phone?: string | null; name?: string | null }> {
-  const { data } = await supabase.from("conversation_overview").select("contact_phone, contact_name").eq("id", conversationId).maybeSingle();
-  return { phone: data?.contact_phone ?? null, name: data?.contact_name ?? null };
+async function contatoDaConversa(supabase: Awaited<ReturnType<typeof createClient>>, conversationId: string): Promise<{ phone?: string | null; name?: string | null; cpf?: string | null }> {
+  const { data } = await supabase.from("conversation_overview").select("contact_id, contact_phone, contact_name").eq("id", conversationId).maybeSingle();
+  // CPF salvo no cadastro do contato (busca por CPF do painel / CRM automático):
+  // é o desempate DEFINITIVO quando o nº de contrato colide entre as bases.
+  let cpf: string | null = null;
+  if (data?.contact_id) {
+    const { data: ct } = await supabase.from("contacts").select("custom_fields").eq("id", data.contact_id).maybeSingle();
+    const v = String((ct?.custom_fields as { cpfcnpj?: string } | null)?.cpfcnpj ?? "").trim();
+    if (v) cpf = v;
+  }
+  return { phone: data?.contact_phone ?? null, name: data?.contact_name ?? null, cpf };
 }
 
 /**
@@ -1427,18 +1435,26 @@ async function contatoDaConversa(supabase: Awaited<ReturnType<typeof createClien
  * conversa contra o cadastro; se ainda ficar ambíguo, retorna os nomes para o
  * chamador RECUSAR com aviso (melhor que chutar).
  */
-async function resolveSgpForContrato<T extends { consultarCliente: (by: { contrato: number }) => Promise<{ encontrado: boolean; nome?: string; telefones?: string[] }> }>(
+async function resolveSgpForContrato<T extends { consultarCliente: (by: { contrato: number }) => Promise<{ encontrado: boolean; nome?: string; telefones?: string[]; cpfcnpj?: string }> }>(
   sgps: T[],
   contrato: number,
-  contato: { phone?: string | null; name?: string | null },
+  contato: { phone?: string | null; name?: string | null; cpf?: string | null },
 ): Promise<{ sgp: T; nome?: string } | { ambiguo: string[] } | null> {
-  const found: { sgp: T; nome?: string; telefones?: string[] }[] = [];
+  const found: { sgp: T; nome?: string; telefones?: string[]; cpfcnpj?: string }[] = [];
   for (const sgp of sgps) {
     const c = await sgp.consultarCliente({ contrato }).catch(() => null);
-    if (c?.encontrado) found.push({ sgp, nome: c.nome, telefones: c.telefones });
+    if (c?.encontrado) found.push({ sgp, nome: c.nome, telefones: c.telefones, cpfcnpj: c.cpfcnpj });
   }
   if (!found.length) return null;
   if (found.length === 1) return { sgp: found[0].sgp, nome: found[0].nome };
+  // 1º desempate: CPF salvo no contato (busca por CPF do painel/CRM automático)
+  // — é prova definitiva de qual cadastro é deste cliente (caso Vera Lucia,
+  // 13/08: atendente buscou por CPF e a trava recusava mesmo assim).
+  const cpfContato = (contato.cpf ?? "").replace(/\D+/g, "");
+  if (cpfContato.length >= 11) {
+    const byCpf = found.filter((f) => (f.cpfcnpj ?? "").replace(/\D+/g, "") === cpfContato);
+    if (byCpf.length === 1) return { sgp: byCpf[0].sgp, nome: byCpf[0].nome };
+  }
   const tail = (contato.phone ?? "").replace(/\D+/g, "").slice(-8);
   if (tail) {
     const byPhone = found.filter((f) => (f.telefones ?? []).some((t) => String(t).replace(/\D+/g, "").endsWith(tail)));
@@ -1469,7 +1485,7 @@ export async function sgpAction(conversationId: string, action: string, contrato
   const contato = await contatoDaConversa(supabase, conversationId);
   const resolvido = await resolveSgpForContrato(clients, contrato, contato);
   if (resolvido && "ambiguo" in resolvido) {
-    return `⚠️ O contrato ${contrato} existe em MAIS DE UMA unidade (${resolvido.ambiguo.join(" / ")}) e não consegui confirmar qual é deste cliente. Use a busca por CPF no painel para carregar o contrato correto.`;
+    return `⚠️ O contrato ${contrato} existe em MAIS DE UMA unidade (${resolvido.ambiguo.join(" / ")}) e não consegui confirmar qual é deste cliente. Confira o CPF no painel do contato (busque pelo CPF, clique em SALVAR) e repita a ação — com o CPF salvo eu identifico a unidade certa sozinho.`;
   }
   const sgp = resolvido?.sgp ?? clients[0];
   try {
@@ -1555,7 +1571,7 @@ export async function sgpSendPix(conversationId: string, contrato: number): Prom
     const contato = await contatoDaConversa(supabase, conversationId);
     const resolvido = await resolveSgpForContrato(clients.map((c) => c.sgp), contrato, contato);
     if (resolvido && "ambiguo" in resolvido) {
-      return { ok: false, message: `⚠️ O contrato ${contrato} existe em MAIS DE UMA unidade (${resolvido.ambiguo.join(" / ")}) e não consegui confirmar qual é deste cliente. Use a busca por CPF no painel para carregar o contrato correto.` };
+      return { ok: false, message: `⚠️ O contrato ${contrato} existe em MAIS DE UMA unidade (${resolvido.ambiguo.join(" / ")}) e não consegui confirmar qual é deste cliente. Confira o CPF no painel do contato (busque pelo CPF, clique em SALVAR) e repita a ação — com o CPF salvo eu identifico a unidade certa sozinho.` };
     }
     const dono = resolvido ? clients.find((c) => c.sgp === resolvido.sgp) : undefined;
     if (dono) {
@@ -1698,7 +1714,7 @@ export async function sgpSendBoleto(conversationId: string, contrato: number): P
     const contato = await contatoDaConversa(supabase, conversationId);
     const resolvido = await resolveSgpForContrato(clients, contrato, contato);
     if (resolvido && "ambiguo" in resolvido) {
-      return { ok: false, message: `⚠️ O contrato ${contrato} existe em MAIS DE UMA unidade (${resolvido.ambiguo.join(" / ")}) e não consegui confirmar qual é deste cliente. Use a busca por CPF no painel para carregar o contrato correto.` };
+      return { ok: false, message: `⚠️ O contrato ${contrato} existe em MAIS DE UMA unidade (${resolvido.ambiguo.join(" / ")}) e não consegui confirmar qual é deste cliente. Confira o CPF no painel do contato (busque pelo CPF, clique em SALVAR) e repita a ação — com o CPF salvo eu identifico a unidade certa sozinho.` };
     }
     if (resolvido) {
       const r = await resolvido.sgp.segundaVia({ contrato, linkPdf: true }).catch(() => null);
@@ -1800,7 +1816,7 @@ export async function sgpSendContrato(conversationId: string, contrato: number):
     const contato = await contatoDaConversa(supabase, conversationId);
     const resolvido = await resolveSgpForContrato(clients, contrato, contato);
     if (resolvido && "ambiguo" in resolvido) {
-      return { ok: false, message: `⚠️ O contrato ${contrato} existe em MAIS DE UMA unidade (${resolvido.ambiguo.join(" / ")}) e não consegui confirmar qual é deste cliente. Use a busca por CPF no painel para carregar o contrato correto.` };
+      return { ok: false, message: `⚠️ O contrato ${contrato} existe em MAIS DE UMA unidade (${resolvido.ambiguo.join(" / ")}) e não consegui confirmar qual é deste cliente. Confira o CPF no painel do contato (busque pelo CPF, clique em SALVAR) e repita a ação — com o CPF salvo eu identifico a unidade certa sozinho.` };
     }
     if (resolvido) pdf = await resolvido.sgp.contratoPdf(contrato);
   }
