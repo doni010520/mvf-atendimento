@@ -50,8 +50,13 @@ export async function getConversations(): Promise<ConversationOverview[]> {
   // atendendo agora, não só para admin). O filtro de visibilidade vale só para
   // as ATIVAS — é lá que um atendente não deve mexer no atendimento do outro.
   const [ativas, encerradas] = await Promise.all([
-    withVisibility(base().neq("status", "closed")).limit(2000),
-    base().eq("status", "closed").limit(800),
+    // Teto voltou pra 500 (era 2000): v2.40.88 subiu isso pra resolver
+    // "conversas ativas cortadas", mas reabriu o gargalo de perf que o
+    // v2.40.81 tinha acabado de fechar (view com 2 lateral joins por linha,
+    // poll a cada 10s por atendente). 500 já é a faixa que os índices de
+    // 0025_perf_indexes.sql foram desenhados pra aguentar sem timeout.
+    withVisibility(base().neq("status", "closed")).limit(500),
+    base().eq("status", "closed").limit(150),
   ]);
   let rows = [
     ...((ativas.data as ConversationOverview[]) ?? []),
