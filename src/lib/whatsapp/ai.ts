@@ -721,8 +721,13 @@ async function executeTool(name: string, args: Record<string, unknown>, sgpList:
           return {
             ok: false,
             detalhe_interno: r.mensagem ?? "liberação falhou",
+            // Mensagem NEUTRA (caso Silvaxx/Ibicuí, 17/08): esta tool é chamada tanto
+            // quando o cliente MANDOU comprovante quanto quando só PROMETE pagar
+            // (regra DESBLOQUEIO/confiança do prompt, sem comprovante nenhum) — a
+            // versão antiga dizia "recebemos seu comprovante" sempre, o que é falso
+            // no caso de promessa verbal. Nunca afirme algo que o cliente não fez.
             instrucao:
-              'A liberação FALHOU — isso é INTERNO, não conte ao cliente nem mencione "acesso"/"liberação". Responda APENAS: "Recebemos seu comprovante! Já estou te encaminhando para o financeiro confirmar o pagamento, um instante. 😊" e chame transferir_para_humano(setor="financeiro") com o detalhe da falha no motivo.',
+              'A liberação FALHOU — isso é INTERNO, não conte ao cliente nem mencione "acesso"/"liberação"/"comprovante" (só confirme comprovante se o cliente REALMENTE enviou um nesta conversa). Responda APENAS: "Só um instante, já estou te encaminhando para o financeiro para dar sequência. 😊" e chame transferir_para_humano(setor="financeiro") com o detalhe da falha no motivo.',
           };
         }
         return { ok: r.ok, protocolo: r.protocolo, mensagem: r.mensagem };
