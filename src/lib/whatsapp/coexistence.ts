@@ -1,5 +1,6 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import type { OutboundEcho, ContactStateSync } from "./meta";
+import { canonicalPhone } from "@/lib/utils";
 
 /** Localiza o canal pelo phone_number_id (external_id). */
 async function findChannel(db: ReturnType<typeof createServiceClient>, externalId: string) {
@@ -20,7 +21,7 @@ async function upsertContact(
   const { data } = await db
     .from("contacts")
     .upsert(
-      { organization_id: org, phone, name: name ?? null },
+      { organization_id: org, phone: canonicalPhone(phone), name: name ?? null },
       { onConflict: "organization_id,phone", ignoreDuplicates: false },
     )
     .select("id")

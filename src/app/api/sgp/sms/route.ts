@@ -4,6 +4,7 @@ import { getProvider } from "@/lib/whatsapp";
 import { logEvent } from "@/lib/log";
 import type { Channel } from "@/lib/types";
 import { rateLimit, getClientIp } from "@/lib/rate-limit";
+import { canonicalPhone } from "@/lib/utils";
 
 /**
  * Gateway de "SMS" do SGP → WhatsApp (substitui o HTTP Genérico do Chatmix).
@@ -68,7 +69,7 @@ async function deliverVia(db: Db, channel: Channel, phone: string, msg: string):
       const { data: created } = await db
         .from("contacts")
         .upsert(
-          { organization_id: org, phone, is_group: false },
+          { organization_id: org, phone: canonicalPhone(phone), is_group: false },
           { onConflict: "organization_id,phone", ignoreDuplicates: false },
         )
         .select("id, phone")
