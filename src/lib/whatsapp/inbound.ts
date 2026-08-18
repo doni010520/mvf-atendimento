@@ -6,6 +6,7 @@ import { rehostImageUrl } from "./avatar";
 import { runChatbot } from "./chatbot";
 import { getProvider } from "./index";
 import { logEvent } from "@/lib/log";
+import { canonicalPhone } from "@/lib/utils";
 
 // Cache de participantes por grupo (5 min) para resolver menções sem bater toda hora.
 const groupPartsCache = new Map<string, { at: number; parts: { phone: string; lid: string }[] }>();
@@ -168,7 +169,7 @@ export async function persistInbound(messages: InboundMessage[]) {
       .upsert(
         {
           organization_id: org,
-          phone: msg.from,
+          phone: isGroup ? msg.from : canonicalPhone(msg.from),
           name: contactName,
           is_group: isGroup,
         },

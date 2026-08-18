@@ -8,6 +8,7 @@ import { toMp3 } from "@/lib/whatsapp/audio-transcode";
 import { getMessages, getConversations } from "@/lib/data/conversations";
 import { logEvent } from "@/lib/log";
 import type { Channel, ContentType, InternalMention } from "@/lib/types";
+import { canonicalPhone } from "@/lib/utils";
 
 const isPreview = () => !process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -69,6 +70,7 @@ export async function openDirectConversation(
     digits = (parts ?? []).find((p) => p.lid === lidDigits)?.phone ?? "";
   }
   if (!digits) return { id: null };
+  digits = canonicalPhone(digits);
   const name = opts.name;
 
   const { data: contact } = await supabase
@@ -133,6 +135,7 @@ export async function resolveDirectContact(
     digits = (parts ?? []).find((p) => p.lid === lidDigits)?.phone ?? "";
   }
   if (!digits) return { phone: null, name: null, existingId: null };
+  digits = canonicalPhone(digits);
 
   const { data: contact } = await supabase
     .from("contacts")
