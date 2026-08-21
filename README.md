@@ -74,8 +74,10 @@ Produção: **https://mvfchat.benitechlab.com** · versão atual em `GET /api/ve
 - **Atualização automática de versão:** após um deploy, quem está com a página aberta vê o aviso “Nova versão disponível” e, se ficar **ocioso** (sem digitar/sem gravar por ~1 min), a página **se atualiza sozinha** — ninguém fica em bundle antigo quebrando Server Actions. Nunca recarrega no meio de uma gravação (`setAppBusy`). O detector exige a **mesma versão nova 2× seguidas** (imune a dois containers no ar).
 - **Polling econômico:** lista de conversas a cada 10s e mensagens da conversa aberta a cada 8s, **pausando com a aba oculta** (o realtime cobre o tempo real). Evita esgotar o Disk IO do banco.
 - **Índices críticos** (migration `0025`): índices parciais para “não-lidas” e “última mensagem” — a view `conversation_overview` faz 2 lateral joins por conversa e sem índice a listagem travava o banco inteiro (incidente real: timeout total com ~900 conversas).
-- **Consultas divididas:** ativas (bot/fila/abertas) vêm **todas**; só o histórico de encerradas tem teto.
+- **Consultas divididas com teto:** ativas (bot/fila/abertas) até **500** recentes, encerradas até **150** — subir esses números sem necessidade reabre o gargalo de Disk IO do incidente acima (aconteceu de novo em 03/08, corrigido de vez em 18/08).
 - **Supabase Pro** com compute dimensionado (o free/nano esgotava o Disk IO Budget e derrubava tudo).
+- **Telefone sempre normalizado antes de gravar contato** (`canonicalPhone` em `lib/utils.ts`): adiciona o `55` quando falta (número colado do SGP, sem código do país) e o 9º dígito quando falta. Sem isso, o mesmo cliente virava 2 contatos/conversas conforme a origem do número (webhook, atendente digitando, coexistência Meta, gateway SGP) — resposta do cliente caía numa conversa nova em vez da que o atendente estava vendo.
+- **Aviso quando o número não existe no WhatsApp:** antes, um envio pra número inválido só mostrava "não entregue" genérico e o atendente ficava reenviando à toa. Agora o erro da UAZAPI é inspecionado e, se for "not on whatsapp", a mensagem é clara: confirme o número antes de tentar de novo.
 
 ## Rodar em desenvolvimento
 
