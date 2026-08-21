@@ -38,7 +38,11 @@ export class UazapiProvider implements ChannelProvider {
 
     const res = await fetch(`${this.host}${path}`, { ...init, headers });
     if (!res.ok) {
-      const err = new Error(`UAZAPI ${path} -> ${res.status}`) as Error & { httpStatus?: number };
+      // Corpo do erro incluído na mensagem: sem isso, o caller só via o status
+      // (ex.: 500 genérico) e não dava pra diferenciar "número não existe no
+      // WhatsApp" de uma instabilidade real do provedor (caso Licia, 21/08).
+      const bodyText = await res.text().catch(() => "");
+      const err = new Error(`UAZAPI ${path} -> ${res.status}${bodyText ? ` | ${bodyText.slice(0, 300)}` : ""}`) as Error & { httpStatus?: number };
       err.httpStatus = res.status;
       throw err;
     }

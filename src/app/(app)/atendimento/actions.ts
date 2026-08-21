@@ -392,7 +392,11 @@ export async function sendMessage(
     // Janela de 24h da Meta (erro 131047/131026) → mensagem amigável.
     deliveryError = /131047|131026|re-?engag|24 ?h|outside|template/i.test(raw)
       ? "Fora da janela de 24h: neste canal oficial, só é possível enviar um modelo (template) aprovado."
-      : "Não foi possível entregar a mensagem.";
+      // Número inexistente no WhatsApp (caso Licia, 21/08): sem isso, virava
+      // "não entregue" genérico e o atendente ficava reenviando à toa.
+      : /not on whatsapp|isinwhatsapp["\s:]*false|não está no whatsapp/i.test(raw)
+        ? "Este número não foi encontrado no WhatsApp. Confirme se o número está correto antes de tentar de novo."
+        : "Não foi possível entregar a mensagem.";
     await supabase.from("messages").update({ status: "failed" }).eq("id", msg!.id);
   }
 
