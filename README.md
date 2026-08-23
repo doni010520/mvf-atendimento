@@ -68,7 +68,15 @@ Produção: **https://mvfchat.benitechlab.com** · versão atual em `GET /api/ve
 
 ### Mobile / PWA
 - O fluxo de atendimento é **responsivo** (padrão WhatsApp mobile): no celular a lista e a conversa alternam em tela cheia, com botão voltar; painel do contato vira overlay.
-- **Instalável como app** (PWA, `manifest.json` com `display: standalone`): Android (Chrome → “Adicionar à tela inicial”) e iPhone (**Safari** → Compartilhar → “Adicionar à Tela de Início”). Abre em tela cheia, direto no atendimento.
+- **Instalável como app** (PWA, `manifest.json` com `display: standalone`): Android (Chrome → “Adicionar à tela inicial”) e iPhone (**Safari** → Compartilhar → “Adicionar à Tela de Início”). Abre em tela cheia, direto no atendimento. O manifest tem `id`, `scope`, atalhos (Atendimento / Clientes / Dashboard) e ícones **192, 512 e maskable** em `public/icons/` — antes um único PNG de 150px era declarado como se fosse 192 e 512, e o Android recortava o ícone sem margem.
+- **Notificações push (v2.41.0)** — o atendente é avisado **com o app fechado**, que é o que faltava para o PWA valer a pena. Como funciona:
+  - **Quem recebe o quê:** conversa **com dono** → só o dono; conversa na **fila** → todos os atendentes com “Receber notificações” ligado no perfil (`profiles.notify`); conversa **com o bot** → ninguém (a IA está atendendo; avisar seria ruído constante). Menção interna (`@atendente`) também vira push — antes só tocava o sino, e só com o app aberto.
+  - **Onde liga:** *Ajustes* ou *Meu perfil* → card “Notificações neste aparelho”. É **por aparelho** (a inscrição pertence àquele navegador): quem usa celular e computador ativa nos dois.
+  - **iPhone:** só funciona com o app **instalado** na Tela de Início (regra da Apple, iOS 16.4+). O card detecta isso e explica, em vez de deixar o botão falhar.
+  - Notificações da mesma conversa se **substituem** em vez de empilhar (`tag` = id da conversa), e há um anti-rajada de 15s para 5 mensagens seguidas não virarem 5 vibrações. O clique **foca a janela já aberta** e navega para a conversa (`/atendimento?c=…`), sem abrir aba nova.
+  - **Chaves VAPID:** ficam em `organizations.settings.push_vapid`, geradas sozinhas no primeiro uso — de propósito, para ligar o push não depender de cadastrar env var no Easypanel nem de rebuild. Dá para sobrepor com `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` (têm prioridade), mas trocar a chave **invalida as inscrições existentes** e todo mundo precisa ativar de novo.
+- **Service worker deliberadamente mínimo** (`public/sw.js`): cacheia **só** arquivo imutável (`/_next/static/*`, `/icons/*`) e recebe o push. **Não** intercepta POST (Server Actions), navegação/HTML, payload RSC nem `/api/*`. O motivo é o histórico do próprio app: HTML cacheado reproduz o “Failed to find Server Action” dos dois containers — só que preso no aparelho, onde F5 não resolve. Por isso também **não** usamos `next-pwa`/Workbox, que faz precache de HTML por padrão.
+  - **Interruptor de emergência:** abrir `https://mvfchat.benitechlab.com/atendimento?nosw=1` naquele aparelho apaga o service worker e os caches e memoriza a escolha; `?nosw=0` volta ao normal. Conserta um celular sem depender de deploy.
 
 ### Confiabilidade e performance
 - **Atualização automática de versão:** após um deploy, quem está com a página aberta vê o aviso “Nova versão disponível” e, se ficar **ocioso** (sem digitar/sem gravar por ~1 min), a página **se atualiza sozinha** — ninguém fica em bundle antigo quebrando Server Actions. Nunca recarrega no meio de uma gravação (`setAppBusy`). O detector exige a **mesma versão nova 2× seguidas** (imune a dois containers no ar).
@@ -130,6 +138,13 @@ BOT_DEBOUNCE_MS=8000         # buffer de rajada: junta mensagens seguidas e resp
 
 # Cron (encerramento por inatividade, auto-transferência)
 CRON_SECRET=                 # protege GET /api/cron?secret=...
+
+# Push (PWA) — OPCIONAIS: sem elas o app gera e guarda o par de chaves sozinho
+# em organizations.settings.push_vapid. Definir aqui tem prioridade, mas trocar
+# a chave invalida as inscrições e todo aparelho precisa ativar de novo.
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=               # default: APP_BASE_URL
 ```
 
 > Em produção essas variáveis ficam no **Easypanel** (serviço `mvf-app` → Environment),
@@ -139,6 +154,11 @@ CRON_SECRET=                 # protege GET /api/cron?secret=...
 
 Schema, RLS e realtime ficam em `supabase/migrations/` (ordem por nome).
 As migrations são aplicadas no projeto **Supabase Cloud** (`xzhzbefkxfgvwfqztqan`).
+
+> **Pendente:** a `0027_push_subscriptions.sql` ainda precisa ser rodada no SQL Editor.
+> Enquanto isso, as inscrições de push ficam no fallback `organizations.settings.push_subs`
+> e **o recurso já funciona**; ao rodar a migration o código passa a usar a tabela sozinho
+> (sem deploy) e o próprio script migra o que estiver no jsonb.
 
 > ⚠️ Algumas migrations recentes foram aplicadas direto no Cloud (via MCP/SQL). Ao
 > mexer no schema, **sempre adicione o `.sql` correspondente nesta pasta** para o repo
@@ -153,7 +173,10 @@ As migrations são aplicadas no projeto **Supabase Cloud** (`xzhzbefkxfgvwfqztqa
 - Gateway SGP: `GET/POST https://mvfchat.benitechlab.com/api/sgp/sms?token=…&numero=…&mensagem=…`
   — recebe os disparos de aviso do SGP (config HTTP Genérico: `set_to=numero`, `set_msg=mensagem`,
   `token=SGP_SMS_TOKEN`) e entrega via WhatsApp (MVF CENTRAL, fallback uazapi).
-  As rotas `/api/webhooks`, `/api/version`, `/api/sgp` e `/api/cron` ficam **fora** do middleware de sessão.
+  As rotas `/api/webhooks`, `/api/version`, `/api/sgp` e `/api/cron` ficam **fora** do middleware de sessão —
+  e `sw.js` também, senão o arquivo do service worker responde 307 para `/login` e o navegador nem registra.
+- Push (autenticadas, dentro do middleware): `GET /api/push/vapid` (chave pública) e
+  `POST`/`DELETE /api/push/subscribe` (registra/remove o aparelho do atendente).
 
 ## Cron / agendador
 

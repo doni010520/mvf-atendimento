@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/ui";
 import { getSession } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { PREVIEW_MODE } from "@/lib/mock";
+import { PushToggle } from "@/components/push-toggle";
 
 const CARDS = [
   { icon: SlidersHorizontal, title: "Configurações", desc: "Descubra a melhor maneira de usar o chat!", href: "/ajustes/configuracoes" },
@@ -48,6 +49,7 @@ export default async function AjustesPage() {
   return (
     <Scroll>
       <PageHeader title="Ajustes" subtitle="Acesse e ajuste os módulos de acordo com suas necessidades." />
+      <PushToggle className="mb-4" />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {cards.map(({ icon: Icon, title, desc, href }) => (
           <Link

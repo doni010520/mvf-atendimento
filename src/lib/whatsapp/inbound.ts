@@ -6,6 +6,7 @@ import { rehostImageUrl } from "./avatar";
 import { runChatbot } from "./chatbot";
 import { getProvider } from "./index";
 import { logEvent } from "@/lib/log";
+import { notifyInboundMessage } from "@/lib/push/send";
 import { canonicalPhone } from "@/lib/utils";
 
 // Cache de participantes por grupo (5 min) para resolver menções sem bater toda hora.
@@ -324,6 +325,20 @@ export async function persistInbound(messages: InboundMessage[]) {
       .from("conversations")
       .update({ last_message_at: new Date().toISOString(), inactivity_warned_at: null })
       .eq("id", conversationId);
+
+    // Notificação push no celular do atendente (mensagem do cliente apenas).
+    // Fire-and-forget de propósito: a mensagem já está gravada, e um erro de
+    // push JAMAIS pode fazer o webhook falhar (a Meta reenviaria o evento).
+    if (!fromMe && !isGroup) {
+      void notifyInboundMessage({
+        db,
+        orgId: org,
+        conversationId,
+        contactName: contact?.name || msg.authorName || msg.from,
+        contentType: msg.contentType,
+        body,
+      });
+    }
 
     // ====== CSAT: captura nota se aguardando satisfação ======
     if (!fromMe && !isGroup && existing?.status === "closed") {

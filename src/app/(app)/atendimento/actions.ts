@@ -9,6 +9,7 @@ import { getMessages, getConversations } from "@/lib/data/conversations";
 import { logEvent } from "@/lib/log";
 import type { Channel, ContentType, InternalMention } from "@/lib/types";
 import { canonicalPhone } from "@/lib/utils";
+import { notifyMention } from "@/lib/push/send";
 
 const isPreview = () => !process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -534,6 +535,18 @@ export async function sendInternalMessage(
         contact_name: (conv?.contact_name as string) ?? null,
       })),
     );
+
+    // Menção também vira push (o sino só toca com o app aberto).
+    if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      void notifyMention({
+        db: createServiceClient(),
+        orgId: session.organization!.id,
+        userIds: targets.map((t) => t.id!).filter(Boolean),
+        conversationId,
+        authorName,
+        body: body.slice(0, 140),
+      });
+    }
   }
 
   await db.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conversationId);

@@ -30,6 +30,11 @@ const securityHeaders = [
       `connect-src 'self' ${process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""} wss://*.supabase.co`,
       // Mídia (áudio/vídeo): self + blob (preview) + Supabase (áudios/vídeos re-hospedados)
       `media-src 'self' data: blob: ${process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""}`,
+      // Service worker (PWA): sem worker-src explícito ele herda script-src, que
+      // já libera 'self' — declarado aqui para não quebrar se script-src mudar.
+      "worker-src 'self'",
+      // Manifest do PWA.
+      "manifest-src 'self'",
       // Frames: só a própria origem
       "frame-ancestors 'self'",
       "object-src 'none'",

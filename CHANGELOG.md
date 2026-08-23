@@ -3,6 +3,23 @@
 Versões do MVF Chat. A versão no ar fica em `GET /api/version` e no topo da tela.
 A imagem é publicada com tag de versão (`:vX.Y.Z`) e do commit (`:<sha>`).
 
+## v2.41.0 — PWA de verdade
+- **Notificações push:** o atendente é avisado com o app fechado. Conversa com dono
+  avisa só o dono; conversa na fila avisa quem tem `notify` ligado; conversa com o
+  bot não avisa ninguém. Menção interna (`@atendente`) também vira push.
+  Ligar em *Ajustes* ou *Meu perfil* → “Notificações neste aparelho” (é por aparelho).
+- **Service worker** (`public/sw.js`) mínimo por decisão: cacheia só arquivo com hash
+  (`/_next/static/*`, `/icons/*`) e recebe o push. Não toca em HTML, RSC, `/api/*`
+  nem POST — HTML cacheado reproduziria o “Failed to find Server Action”, preso no
+  aparelho. Escape hatch por dispositivo: abrir o app com `?nosw=1`.
+- **Ícones e manifest corretos:** 192/512/maskable + apple-touch-icon (antes um único
+  PNG de 150px era declarado como 192 e 512); manifest com `id`, `scope`, atalhos.
+- **`theme-color` volta a existir:** estava dentro do `metadata`, que o Next 16 ignora
+  em silêncio; movido para o `export const viewport`.
+- Chaves VAPID geradas e guardadas sozinhas (`organizations.settings.push_vapid`) —
+  ligar o push não depende de env var no Easypanel. Migration `0027` cria a tabela
+  `push_subscriptions`; até rodar, as inscrições ficam no fallback jsonb.
+
 ## v2.22.0
 - Apagar mensagem deixa de aparecer em conversas do canal **Meta (API Oficial)**,
   já que a Meta não permite revogar mensagem enviada. UAZAPI mantém as duas opções.

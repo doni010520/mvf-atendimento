@@ -5,6 +5,7 @@ import { PREVIEW_MODE } from "@/lib/mock";
 import { updateOwnProfile } from "./actions";
 import { TwoFactorSetup } from "@/components/two-factor-setup";
 import { PasswordChangeForm } from "@/components/password-change-form";
+import { PushToggle } from "@/components/push-toggle";
 
 const ROLE_LABEL: Record<string, string> = { admin: "Administrador", supervisor: "Supervisor", agent: "Atendente" };
 
@@ -65,6 +66,7 @@ export default async function PerfilPage() {
         </form>
       </Card>
 
+      {!PREVIEW_MODE && <PushToggle className="max-w-xl" />}
       {!PREVIEW_MODE && <PasswordChangeForm />}
       {!PREVIEW_MODE && <TwoFactorSetup enabled={p?.totp_enabled} />}
     </Scroll>

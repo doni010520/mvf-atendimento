@@ -8,5 +8,7 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|manifest\\.json|api/webhooks|api/version|api/sgp|.*\\.(?:svg|png|jpg|jpeg|gif|webp|json)$).*)"],
+  // `sw.js` PRECISA ficar fora: passando pelo middleware de sessão o arquivo do
+  // service worker responde 307 para /login e o navegador nem chega a registrar.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|manifest\\.json|sw\\.js|api/webhooks|api/version|api/sgp|.*\\.(?:svg|png|jpg|jpeg|gif|webp|json)$).*)"],
 };

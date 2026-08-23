@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Hanken_Grotesk } from "next/font/google";
 import "./globals.css";
 
@@ -24,9 +24,19 @@ export const metadata: Metadata = {
     images: [{ url: "/logo-mvf.png", alt: "MVF Chat" }],
   },
   manifest: "/manifest.json",
-  themeColor: "#00a8ff",
   appleWebApp: { capable: true, statusBarStyle: "default", title: "MVF Chat" },
-  viewport: { width: "device-width", initialScale: 1, maximumScale: 1, userScalable: false },
+};
+
+// Next 16: `themeColor` e `viewport` DENTRO do metadata são ignorados em silêncio
+// (a barra do navegador nunca ficava com a cor da marca e o app instalado abria
+// sem theme-color). O lugar certo é este export separado.
+// Mantido igual ao que o app já servia na prática (width + initial-scale): o
+// maximumScale/userScalable do metadata antigo nunca chegou a valer, e reativar
+// agora tiraria o pinch-zoom de quem depende dele.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#00a8ff",
 };
 
 export default function RootLayout({
