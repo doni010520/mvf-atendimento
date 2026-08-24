@@ -477,7 +477,11 @@ export function Inbox({
     const { id, text } = editing;
     setEditing(null);
     startTransition(async () => {
-      await editMessageAction(convId, id, text);
+      const r = await editMessageAction(convId, id, text);
+      // O resultado importa: se o WhatsApp do cliente recusou, a mensagem NÃO
+      // foi editada lá — dizer o contrário faria o atendente seguir confiante.
+      if (r?.ok) toast("Mensagem editada também no WhatsApp do cliente.");
+      else toast(r?.error ?? "Não foi possível editar a mensagem.", "error");
       const msgs = await fetchMessages(convId);
       setMessagesByConv((prev) => ({ ...prev, [convId]: msgs }));
     });
@@ -495,7 +499,12 @@ export function Inbox({
     if (!m || !selectedId) return;
     const convId = selectedId;
     startTransition(async () => {
-      await deleteMessageAction(convId, m.id, scope);
+      const r = await deleteMessageAction(convId, m.id, scope);
+      if (r?.ok) {
+        toast(scope === "everyone" ? "Mensagem apagada no WhatsApp do cliente." : "Mensagem apagada aqui (o cliente continua vendo).");
+      } else {
+        toast(`${r?.error ?? "Não foi possível apagar."} Se quiser tirar só da tela, use "Apagar para mim".`, "error");
+      }
       const msgs = await fetchMessages(convId);
       setMessagesByConv((prev) => ({ ...prev, [convId]: msgs }));
     });
@@ -1000,12 +1009,30 @@ export function Inbox({
               <button onClick={() => setDeleteTarget(null)} className="text-ink-soft hover:text-ink"><X size={18} /></button>
             </div>
             <div className="flex flex-col gap-2">
-              <button
-                onClick={() => confirmDelete("everyone")}
-                className="w-full rounded-lg bg-danger px-4 py-2.5 text-sm font-medium text-white transition hover:bg-red-600"
-              >
-                Apagar para todos
-              </button>
+              {/* Duas restrições reais:
+                  1) "Para todos" só faz sentido em mensagem NOSSA — o WhatsApp não deixa
+                     ninguém apagar mensagem do aparelho do outro (falhava sempre);
+                  2) na API Oficial (Meta) não existe revogar — ali só dá para tirar da
+                     conversa da equipe, e o texto abaixo diz isso com todas as letras. */}
+              {selected?.channel_type === "meta_cloud" ? (
+                <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-ink-soft">
+                  Esta conversa é da <strong>API Oficial</strong>, que não permite apagar a mensagem
+                  do WhatsApp do cliente. Você pode tirá-la da conversa da equipe — ela fica no
+                  histórico para auditoria, mas <strong>o cliente continua vendo</strong>.
+                </p>
+              ) : deleteTarget.direction === "out" ? (
+                <button
+                  onClick={() => confirmDelete("everyone")}
+                  className="w-full rounded-lg bg-danger px-4 py-2.5 text-sm font-medium text-white transition hover:bg-red-600"
+                >
+                  Apagar para todos
+                </button>
+              ) : (
+                <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-ink-soft">
+                  Esta mensagem é do cliente — o WhatsApp não permite apagá-la do aparelho dele.
+                  Dá para tirar só daqui.
+                </p>
+              )}
               <button
                 onClick={() => confirmDelete("me")}
                 className="w-full rounded-lg border border-border bg-surface px-4 py-2.5 text-sm font-medium text-ink transition hover:bg-gray-50"

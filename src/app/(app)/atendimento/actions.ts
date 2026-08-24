@@ -1010,23 +1010,80 @@ export async function reactToMessage(conversationId: string, messageId: string, 
   return { ok: true };
 }
 
-/** Edita o texto de uma mensagem enviada. */
-export async function editMessageAction(conversationId: string, messageId: string, newText: string) {
-  if (isPreview()) return { ok: true };
-  const text = newText.trim();
-  if (!text) return { ok: false };
-  const supabase = await createClient();
-  const { data: m } = await supabase.from("messages").select("external_id").eq("id", messageId).single();
-  if (!m?.external_id) return { ok: false };
-  const { channel } = await recipientFor(supabase, conversationId);
-  try {
-    await getProvider(channel).editMessage?.(m.external_id, text);
-  } catch (e) {
-    console.error("edit error", e);
+/** Janela em que o WhatsApp aceita EDITAR uma mensagem já enviada. */
+const EDIT_LIMITE_MIN = 15;
+
+/**
+ * Traduz o erro cru do provedor numa frase que o atendente entende.
+ * O texto técnico continua indo para o app_logs — aqui é só a leitura humana.
+ */
+function motivoFalha(erro: string, verbo: "editar" | "apagar"): string {
+  const e = erro.toLowerCase();
+  if (e.includes("404") || e.includes("not found")) {
+    return `O WhatsApp não encontrou mais essa mensagem para ${verbo} — normalmente é porque já passou do prazo permitido.`;
   }
+  if (e.includes("500")) {
+    return `O WhatsApp recusou ${verbo} essa mensagem. Costuma ser mensagem antiga demais (o prazo para apagar para todos é de cerca de 2 dias) ou a linha estar fora do ar.`;
+  }
+  if (e.includes("timeout") || e.includes("fetch failed") || e.includes("econn")) {
+    return `Não consegui falar com a linha do WhatsApp agora. Tente de novo em instantes.`;
+  }
+  return `Não foi possível ${verbo} no WhatsApp do cliente.`;
+}
+
+/**
+ * Edita o texto de uma mensagem enviada.
+ *
+ * REGRA (corrigida em 24/08/2026): o texto local só muda se o WhatsApp do
+ * CLIENTE aceitar a edição. Antes o erro do provedor era engolido e o banco era
+ * atualizado assim mesmo — o atendente via a mensagem editada na tela enquanto o
+ * cliente continuava lendo o texto velho, sem ninguém desconfiar.
+ */
+export async function editMessageAction(conversationId: string, messageId: string, newText: string) {
+  if (isPreview()) return { ok: true as const };
+  const text = newText.trim();
+  if (!text) return { ok: false as const, error: "Escreva o novo texto." };
+
+  const supabase = await createClient();
+  const { data: m } = await supabase
+    .from("messages")
+    .select("external_id, created_at")
+    .eq("id", messageId)
+    .single();
+  if (!m?.external_id) {
+    return { ok: false as const, error: "Essa mensagem não tem identificador no WhatsApp — não dá para editar." };
+  }
+
+  const { channel } = await recipientFor(supabase, conversationId);
+  const provider = getProvider(channel);
+  if (!provider.editMessage) {
+    return {
+      ok: false as const,
+      error: "A API Oficial (Meta) não permite editar mensagem já enviada. Só as linhas conectadas por QR Code aceitam.",
+    };
+  }
+
+  // Confere o prazo ANTES de chamar: assim o atendente recebe o motivo exato
+  // em vez de um erro genérico do provedor.
+  const minutos = (Date.now() - new Date(m.created_at as string).getTime()) / 60000;
+  if (minutos > EDIT_LIMITE_MIN) {
+    return {
+      ok: false as const,
+      error: `O WhatsApp só permite editar até ${EDIT_LIMITE_MIN} minutos depois do envio (essa é de ${Math.round(minutos)} min atrás).`,
+    };
+  }
+
+  try {
+    await provider.editMessage(m.external_id, text);
+  } catch (e) {
+    const bruto = (e as Error)?.message ?? String(e);
+    void logEvent("error", "send", `Falha ao editar mensagem: ${bruto}`, { conversationId, messageId });
+    return { ok: false as const, error: motivoFalha(bruto, "editar") };
+  }
+
   await supabase.from("messages").update({ body: text, edited: true }).eq("id", messageId);
   revalidatePath("/atendimento");
-  return { ok: true };
+  return { ok: true as const };
 }
 
 /**
@@ -1041,26 +1098,39 @@ export async function deleteMessageAction(
   messageId: string,
   scope: "me" | "everyone" = "everyone",
 ) {
-  if (isPreview()) return { ok: true };
+  if (isPreview()) return { ok: true as const, revoked: scope === "everyone" };
   const supabase = await createClient();
-  let revoked = false;
+
+  // "Para todos" só marca no banco se o WhatsApp do cliente REALMENTE revogar.
+  // Antes a falha era só um console.error e a mensagem ficava esmaecida na tela
+  // do atendente — que passava a acreditar que o cliente não via mais nada.
   if (scope === "everyone") {
     const { data: m } = await supabase.from("messages").select("external_id").eq("id", messageId).single();
     const { channel } = await recipientFor(supabase, conversationId);
+    const provider = getProvider(channel);
+
+    if (!m?.external_id || !provider.deleteMessage) {
+      return {
+        ok: false as const,
+        revoked: false,
+        error:
+          "A API Oficial (Meta) não apaga mensagem no WhatsApp do cliente — só as linhas conectadas por QR Code. Você ainda pode apagar só aqui.",
+      };
+    }
+
     try {
-      if (m?.external_id && getProvider(channel).deleteMessage) {
-        await getProvider(channel).deleteMessage!(m.external_id);
-        revoked = true;
-      }
+      await provider.deleteMessage(m.external_id);
     } catch (e) {
-      console.error("delete error", e);
-      void logEvent("error", "send", `Falha ao revogar mensagem: ${(e as Error)?.message}`, { conversationId });
+      const bruto = (e as Error)?.message ?? String(e);
+      void logEvent("error", "send", `Falha ao revogar mensagem: ${bruto}`, { conversationId, messageId });
+      return { ok: false as const, revoked: false, error: motivoFalha(bruto, "apagar") };
     }
   }
+
   // Mantém body/media (auditoria); só marca como apagada + o escopo.
   await supabase.from("messages").update({ is_deleted: true, deleted_scope: scope }).eq("id", messageId);
   revalidatePath("/atendimento");
-  return { ok: true, revoked };
+  return { ok: true as const, revoked: scope === "everyone" };
 }
 
 /** Marca as mensagens recebidas da conversa como lidas (✓✓ azul no WhatsApp). */

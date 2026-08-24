@@ -332,7 +332,12 @@ export function ChatThread({
                 // Meta (API Oficial) não permite editar msg enviada → esconde o "Editar"
                 // para não dar falsa impressão (só a cópia local mudaria).
                 onEdit={isMeta ? undefined : onEdit}
-                onDelete={isMeta ? undefined : onDelete}
+                // "Apagar" CONTINUA aparecendo no Meta (24/08/2026): o que a Meta não
+                // deixa é revogar no aparelho do cliente — tirar a mensagem da conversa
+                // da equipe é legítimo e era o que faltava, já que 7 em cada 10
+                // conversas estão nas linhas oficiais. O modal deixa explícito que ali
+                // só dá para apagar aqui.
+                onDelete={onDelete}
                 onAuthorClick={onAuthorClick}
                 onReplyPrivate={isGroup ? onReplyPrivate : undefined}
                 quotedAuthor={quotedAuthor}

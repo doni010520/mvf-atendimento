@@ -27,7 +27,11 @@ Produção: **https://mvfchat.benitechlab.com** · versão atual em `GET /api/ve
 - **Menções:** de contatos em grupos (`@contato`) e de atendentes (`@atendente`).
 - **Tempo real:** mensagens, status e menções via Supabase Realtime.
 - **Status de entrega Meta de verdade:** o webhook processa `statuses[]` — ✓ **entregue**, ✓✓ **lido** e **falhas com o motivo da Meta** (código + descrição, ex.: `131047` fora da janela de 24h) registradas em `app_logs`. Sem isso, tudo ficava “sent” para sempre e a causa das falhas se perdia.
-- **Apagar/editar na API oficial NÃO existe** (confirmado na doc da Meta): nos números oficiais, mensagem enviada é definitiva no cliente — o “apagar” só marca no histórico interno. No UAZAPI o “apagar para todos” revoga de verdade.
+- **Apagar/editar na API oficial NÃO existe** (confirmado na doc da Meta): nos números oficiais, mensagem enviada é definitiva no cliente. Nas linhas **UAZAPI** (QR Code) o “apagar para todos” revoga de verdade e a edição chega ao cliente.
+- **O app não mente sobre o resultado (v2.41.1).** A edição só muda o texto aqui se o WhatsApp do cliente aceitar; “apagar para todos” só marca a mensagem como apagada se revogou mesmo. Quando falha, o atendente vê o motivo (prazo vencido, linha fora do ar…) e o erro vai para `app_logs`. Antes o erro era engolido: o atendente via a mensagem editada/apagada e o cliente seguia lendo o original.
+  - **Prazos do WhatsApp:** editar, até **15 minutos** depois do envio (o app avisa antes de tentar); apagar para todos, cerca de **2 dias**.
+  - **Mensagem recebida** não oferece “apagar para todos” — ninguém apaga do aparelho do outro.
+  - **Na API Oficial** o menu oferece apagar **só aqui**: some da conversa da equipe (fica no histórico para auditoria) e o texto do modal deixa claro que o cliente continua vendo.
 
 ### PIX / mensagens interativas
 - **Cartão de PIX com botão “Copiar código”** — o cliente toca e copia o código copia-e-cola inteiro, sem selecionar texto na mão.

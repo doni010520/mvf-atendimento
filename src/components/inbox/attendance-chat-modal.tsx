@@ -221,7 +221,9 @@ export function AttendanceChatModal({
     const { id, text } = editing;
     setEditing(null);
     startTransition(async () => {
-      await editMessageAction(convId, id, text);
+      const r = await editMessageAction(convId, id, text);
+      if (r?.ok) toast("Mensagem editada também no WhatsApp do cliente.");
+      else toast(r?.error ?? "Não foi possível editar a mensagem.", "error");
       await refetch();
     });
   }
@@ -231,7 +233,12 @@ export function AttendanceChatModal({
     setDeleteTarget(null);
     if (!m) return;
     startTransition(async () => {
-      await deleteMessageAction(convId, m.id, scope);
+      const r = await deleteMessageAction(convId, m.id, scope);
+      if (r?.ok) {
+        toast(scope === "everyone" ? "Mensagem apagada no WhatsApp do cliente." : "Mensagem apagada aqui (o cliente continua vendo).");
+      } else {
+        toast(`${r?.error ?? "Não foi possível apagar."} Se quiser tirar só da tela, use "Apagar para mim".`, "error");
+      }
       await refetch();
     });
   }
@@ -464,7 +471,21 @@ export function AttendanceChatModal({
                 <button onClick={() => setDeleteTarget(null)} className="text-ink-soft hover:text-ink"><X size={18} /></button>
               </div>
               <div className="flex flex-col gap-2">
-                <button onClick={() => confirmDelete("everyone")} className="w-full rounded-lg bg-danger px-4 py-2.5 text-sm font-medium text-white transition hover:bg-red-600">Apagar para todos</button>
+                {/* "Para todos" só em mensagem NOSSA, e nunca na API Oficial — ver
+                    comentário no inbox.tsx. */}
+                {conv.channel_type === "meta_cloud" ? (
+                  <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-ink-soft">
+                    Esta conversa é da <strong>API Oficial</strong>, que não permite apagar a mensagem
+                    do WhatsApp do cliente. Você pode tirá-la da conversa da equipe — ela fica no
+                    histórico para auditoria, mas <strong>o cliente continua vendo</strong>.
+                  </p>
+                ) : deleteTarget.direction === "out" ? (
+                  <button onClick={() => confirmDelete("everyone")} className="w-full rounded-lg bg-danger px-4 py-2.5 text-sm font-medium text-white transition hover:bg-red-600">Apagar para todos</button>
+                ) : (
+                  <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-ink-soft">
+                    Esta mensagem é do cliente — o WhatsApp não permite apagá-la do aparelho dele. Dá para tirar só daqui.
+                  </p>
+                )}
                 <button onClick={() => confirmDelete("me")} className="w-full rounded-lg border border-border bg-surface px-4 py-2.5 text-sm font-medium text-ink transition hover:bg-gray-50">Apagar para mim</button>
                 <button onClick={() => setDeleteTarget(null)} className="w-full rounded-lg px-4 py-2 text-sm font-medium text-ink-soft transition hover:bg-gray-50">Cancelar</button>
               </div>

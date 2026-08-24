@@ -3,6 +3,23 @@
 Versões do MVF Chat. A versão no ar fica em `GET /api/version` e no topo da tela.
 A imagem é publicada com tag de versão (`:vX.Y.Z`) e do commit (`:<sha>`).
 
+## v2.41.1 — editar/apagar mensagem que não mente
+- **O resultado passou a valer.** `editMessageAction` engolia o erro do provedor e
+  atualizava o banco assim mesmo: o atendente via a mensagem editada enquanto o
+  cliente continuava lendo o texto velho. Agora o texto local só muda se o
+  WhatsApp do cliente aceitar, e a falha aparece na tela com o motivo.
+  Idem para "apagar para todos" — só marca como apagada se revogou de verdade.
+- **Prazo do WhatsApp:** edição é recusada com aviso claro depois de 15 minutos,
+  em vez de erro genérico do provedor.
+- **"Apagar para todos" some em mensagem recebida:** não existe apagar do aparelho
+  do outro — o botão prometia o impossível e falhava sempre.
+- **Apagar volta a aparecer nas linhas da API Oficial**, só que como "apagar aqui":
+  tira a mensagem da conversa da equipe (fica no histórico para auditoria) e diz,
+  com todas as letras, que o cliente continua vendo. 7 em cada 10 conversas estão
+  nas linhas oficiais — era ali que a opção fazia falta.
+- Falhas de edição/revogação passam a ser registradas em `app_logs` (antes só
+  `console.error`, invisível).
+
 ## v2.41.0 — PWA de verdade
 - **Notificações push:** o atendente é avisado com o app fechado. Conversa com dono
   avisa só o dono; conversa na fila avisa quem tem `notify` ligado; conversa com o
