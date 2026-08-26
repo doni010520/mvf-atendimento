@@ -173,10 +173,29 @@ async function handle(request: Request): Promise<NextResponse> {
       return NextResponse.json({ status: 1, ok: false, bloqueado: "formato chatmix ilegível — nada enviado; ajuste o texto do aviso no SGP" });
     }
   }
-  // GATEWAY RESTRITO A CONTRATOS (decisão da operação, 07/08/2026): por ora o
-  // SGP só usa este gateway para enviar CONTRATO/assinatura. Qualquer outro
-  // disparo (ex.: lote de aviso de vencimento das 8h) é aceito e registrado,
-  // mas NÃO enviado. Para voltar a liberar tudo: env SGP_SMS_ALLOW=tudo.
+  // LIBERAÇÃO CONTROLADA POR MODELO DO SGP.
+  //
+  // Desde 07/08/2026 o gateway só entregava CONTRATO/assinatura. O lote diário
+  // das 8h era aceito e descartado — 3.246 disparos engolidos em 30 dias, a
+  // origem do "as mensagens não estão chegando" relatado pela operação.
+  //
+  // Liberar tudo de uma vez é perigoso: o tradutor acima só distingue LINK
+  // (contrato) de NOME (aviso de vencimento), mas o SGP dispara QUATRO modelos
+  // diferentes — 7323, 7325, 7327 e 8888. Todos os três primeiros viram o mesmo
+  // texto de vencimento. Se 7323 ou 7327 forem outro assunto (aniversário,
+  // retirada de equipamento), o cliente receberia cobrança no lugar errado.
+  //
+  // SGP_SMS_ALLOW aceita:
+  //   (vazio)     → só contrato (padrão seguro, comportamento anterior)
+  //   "tudo"      → libera qualquer disparo
+  //   "7325"      → libera contrato + SOMENTE esse modelo
+  //   "7325,7327" → vários, separados por vírgula
+  //
+  // Libere por ID conforme confirmar com a operação o que cada um significa.
+  const allow = (process.env.SGP_SMS_ALLOW ?? "").trim().toLowerCase();
+  const tplId = chatmix?.[2] ?? null;
+  const modelosLiberados = allow.split(",").map((s) => s.trim()).filter((s) => /^\d+$/.test(s));
+
   const urlInMsg = effectiveMsg.match(/https?:\/\/\S+/)?.[0] ?? null;
   const isContrato =
     (!!urlInMsg && (!!chatmix || /contrat|aceite|termo|assinatura|eletronica/i.test(effectiveMsg + urlInMsg))) ||
@@ -184,11 +203,16 @@ async function handle(request: Request): Promise<NextResponse> {
     // (ex.: "A assinatura do documento Contrato ... foi aprovada" — bloqueado
     // por engano em 10/08). Exige as DUAS palavras p/ não abrir porta a cobrança.
     (/assinatura/i.test(effectiveMsg) && /contrat/i.test(effectiveMsg));
-  if (process.env.SGP_SMS_ALLOW !== "tudo" && !isContrato) {
+
+  const liberado =
+    allow === "tudo" || isContrato || (!!tplId && modelosLiberados.includes(tplId));
+
+  if (!liberado) {
     const db1 = createServiceClient();
     const { data: anyCh1 } = await db1.from("channels").select("organization_id").limit(1).maybeSingle();
-    void logEvent("warn", "sgp-sms", `IGNORADO (gateway restrito a CONTRATOS): "${String(msg).slice(0, 80)}"`, { phones: phonesRaw.slice(0, 60) }, anyCh1?.organization_id ?? null);
-    return NextResponse.json({ status: 1, ok: false, ignorado: "gateway restrito a contratos" });
+    const motivo = tplId ? `modelo ${tplId} não liberado` : "gateway restrito a contratos";
+    void logEvent("warn", "sgp-sms", `IGNORADO (${motivo}): "${String(msg).slice(0, 80)}"`, { phones: phonesRaw.slice(0, 60), tplId }, anyCh1?.organization_id ?? null);
+    return NextResponse.json({ status: 1, ok: false, ignorado: motivo });
   }
 
   const phones = phonesRaw.split(",").map(normPhone).filter((p): p is string => !!p);
