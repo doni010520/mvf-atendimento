@@ -38,11 +38,37 @@ export default function LoginPage() {
     setPending(true);
     const form = new FormData(e.currentTarget);
     const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({
-      email: String(form.get("email")),
-      password: String(form.get("password")),
-    });
-    if (error) { setPending(false); setError("E-mail ou senha inválidos."); return; }
+
+    // Sessão local antiga trava o login. O cliente do Supabase serializa as
+    // operações de auth num lock do navegador; um refresh pendurado — ou um
+    // refresh_token que o servidor já não conhece — segura esse lock e o
+    // signIn espera PARA SEMPRE: a tela fica em "Entrando..." sem erro e a
+    // requisição nunca chega ao servidor. Descartar o estado local antes de
+    // entrar solta o lock. (Caso real: 26/08/2026.)
+    await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+
+    // Rede ou lock travado não pode virar espera infinita: sem teto, o
+    // atendente fica olhando "Entrando..." sem saber o que fazer.
+    let res: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>;
+    try {
+      res = await Promise.race([
+        supabase.auth.signInWithPassword({
+          email: String(form.get("email")),
+          password: String(form.get("password")),
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("timeout")), 15000),
+        ),
+      ]);
+    } catch {
+      setPending(false);
+      setError(
+        "O login não respondeu. Feche as outras abas do sistema e tente de novo. Se continuar, limpe os dados do site no navegador.",
+      );
+      return;
+    }
+
+    if (res.error) { setPending(false); setError("E-mail ou senha inválidos."); return; }
     await proceedOrChallenge();
   }
 
