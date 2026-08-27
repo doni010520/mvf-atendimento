@@ -11,12 +11,18 @@ export function PasswordChangeForm() {
   async function submit(fd: FormData) {
     setPending(true);
     setMsg(null);
+    // A action RETORNA o erro (não lança): exceção de Server Action vira texto
+    // técnico censurado em produção. O try/catch fica só para queda de rede.
     try {
-      await changeOwnPassword(fd);
+      const r = await changeOwnPassword(fd);
+      if (!r.ok) {
+        setMsg({ ok: false, text: r.error });
+        return;
+      }
       setMsg({ ok: true, text: "Senha alterada com sucesso." });
       (document.getElementById("pwd-form") as HTMLFormElement | null)?.reset();
-    } catch (e) {
-      setMsg({ ok: false, text: e instanceof Error ? e.message : "Falha ao alterar a senha." });
+    } catch {
+      setMsg({ ok: false, text: "Não foi possível falar com o servidor. Verifique a conexão e tente de novo." });
     } finally {
       setPending(false);
     }

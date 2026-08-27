@@ -18,12 +18,19 @@ export function ForcedPasswordForm() {
   async function submit(fd: FormData) {
     setPending(true);
     setError(null);
+    // A action RETORNA o erro (não lança): exceção de Server Action vira texto
+    // técnico censurado em produção. O try/catch fica só para queda de rede.
     try {
-      await changeOwnPassword(fd);
+      const r = await changeOwnPassword(fd);
+      if (!r.ok) {
+        setError(r.error);
+        setPending(false);
+        return;
+      }
       router.push("/");
       router.refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Falha ao definir a senha.");
+    } catch {
+      setError("Não foi possível falar com o servidor. Verifique a conexão e tente de novo.");
       setPending(false);
     }
   }
