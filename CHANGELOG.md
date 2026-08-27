@@ -3,6 +3,26 @@
 Versões do MVF Chat. A versão no ar fica em `GET /api/version` e no topo da tela.
 A imagem é publicada com tag de versão (`:vX.Y.Z`) e do commit (`:<sha>`).
 
+## v2.41.5 — arquivo do cliente baixa com a extensão certa (fim do ".bin")
+- **Documento do cliente virava `.bin`.** O mapa de mimetypes conhecia só 12 tipos
+  (imagem/áudio/vídeo/PDF); planilha, Word, zip e afins caíam no fallback e iam
+  para o bucket como `<id>.bin` — o atendente baixava e o Excel recusava abrir.
+  Agora a extensão é decidida por: mimetype conhecido → nome original do arquivo →
+  **assinatura dos bytes** (`%PDF`, `PK`, OLE2, JPEG, PNG…) → extensão da
+  URL. A assinatura resolve o caso mais comum, que é a UAZAPI mandar
+  `application/octet-stream` sem dizer o que é.
+- **O nome que o cliente mandou parou de ser jogado fora.** O webhook (UAZAPI e
+  Meta) traz `fileName`; ele é guardado em `messages.media_name` e aparece no balão
+  no lugar de "Abrir documento".
+- **O download passou a respeitar o nome.** O bucket fica em outro domínio, então o
+  atributo `download` do `<a>` é ignorado pelo navegador — o arquivo caía no disco
+  com o nome do storage. O link agora usa `?download=<nome>` do Supabase Storage,
+  que manda o `Content-Disposition` certo.
+- Os inserts de mensagem toleram a ausência de `media_name` (migration `0030`):
+  sem isso, subir o código antes da migration derrubaria a gravação de TODAS as
+  mensagens recebidas. Enquanto a migration não roda, a extensão já vem correta e
+  só o nome fica sendo o id do storage.
+
 ## v2.41.1 — editar/apagar mensagem que não mente
 - **O resultado passou a valer.** `editMessageAction` engolia o erro do provedor e
   atualizava o banco assim mesmo: o atendente via a mensagem editada enquanto o

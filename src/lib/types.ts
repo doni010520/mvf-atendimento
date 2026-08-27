@@ -351,6 +351,7 @@ export interface Message {
   content_type: ContentType;
   body: string | null;
   media_url: string | null;
+  media_name?: string | null; // nome ORIGINAL do arquivo (documento)
   status: "pending" | "sent" | "delivered" | "read" | "failed";
   external_id: string | null;
   author_name?: string | null;

@@ -333,9 +333,8 @@ export async function sendMessage(
     replyExcerpt = q?.body ?? (q?.content_type && q.content_type !== "text" ? `[${q.content_type}]` : null);
   }
 
-  const { data: msg } = await supabase
-    .from("messages")
-    .insert({
+  // Ver nota em inbound.ts: media_name so existe apos a migration 0030.
+  const outRow: Record<string, unknown> = {
       organization_id: session.organization.id,
       conversation_id: conversationId,
       direction: "out",
@@ -346,9 +345,13 @@ export async function sendMessage(
       reply_to_external: replyToExternal ?? null,
       reply_excerpt: replyExcerpt,
       status: "pending",
-    })
-    .select("id")
-    .single();
+  };
+  let outIns = await supabase.from("messages").insert(outRow).select("id").single();
+  if (outIns.error && /media_name/.test(outIns.error.message ?? "")) {
+    delete outRow.media_name;
+    outIns = await supabase.from("messages").insert(outRow).select("id").single();
+  }
+  const msg = outIns.data;
 
   // Marca atividade IMEDIATAMENTE (antes do round-trip do provedor, que leva
   // segundos) para o cron de inatividade não encerrar a conversa que o atendente
@@ -944,6 +947,7 @@ export async function sendMediaMessage(formData: FormData) {
       content_type: content,
       body: caption || null,
       media_url: publicUrl,
+      media_name: file.name || null,
       status: "pending",
     })
     .select("id")

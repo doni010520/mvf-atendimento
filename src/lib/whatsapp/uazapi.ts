@@ -370,7 +370,7 @@ export class UazapiProvider implements ChannelProvider {
    * (`/files/...`), o mimetype e, para áudio, a transcrição automática.
    * Endpoint: POST /message/download { id }.
    */
-  async downloadMedia(externalId: string): Promise<{ url?: string; mimetype?: string; transcription?: string }> {
+  async downloadMedia(externalId: string): Promise<{ url?: string; mimetype?: string; transcription?: string; fileName?: string }> {
     try {
       const r = (await this.req("/message/download", {
         method: "POST",
@@ -380,6 +380,7 @@ export class UazapiProvider implements ChannelProvider {
         url: (r.fileURL as string) ?? (r.url as string) ?? undefined,
         mimetype: (r.mimetype as string) ?? undefined,
         transcription: (r.transcription as string) || undefined,
+        fileName: (r.fileName as string) ?? (r.filename as string) ?? (r.documentFileName as string) ?? undefined,
       };
     } catch {
       return {};
@@ -572,6 +573,8 @@ export function parseUazapiWebhook(payload: any): InboundMessage[] {
         contentType: mapType(m?.mediaType ?? m?.messageType ?? m?.type),
         body: m?.text ?? m?.body ?? m?.caption ?? m?.content?.text ?? m?.content?.caption,
         mediaUrl: m?.file ?? m?.mediaUrl ?? m?.fileURL,
+        // Nome original do documento — sem ele o download vira "<id>.bin".
+        fileName: m?.fileName ?? m?.filename ?? m?.documentFileName ?? m?.content?.fileName ?? m?.content?.title ?? undefined,
         externalId: m?.id ?? m?.messageId ?? m?.messageid,
         replyTo: extractReply(m),
       };

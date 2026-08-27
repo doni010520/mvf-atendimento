@@ -269,10 +269,13 @@ export async function persistInbound(messages: InboundMessage[]) {
 
     // Mídia: baixa/descriptografa e re-hospeda; áudio ganha transcrição como corpo.
     let mediaUrl = msg.mediaUrl ?? null;
+    let mediaName: string | null = msg.fileName ?? null;
     let body = msg.body ?? null;
     if (MEDIA_TYPES.has(msg.contentType)) {
-      const stored = await storeInboundMedia(db, channel as Channel, msg.mediaId ?? msg.externalId, msg.contentType).catch(() => ({}) as { url?: string; transcription?: string });
+      const stored = await storeInboundMedia(db, channel as Channel, msg.mediaId ?? msg.externalId, msg.contentType, msg.fileName)
+        .catch(() => ({}) as { url?: string; transcription?: string; name?: string });
       if (stored.url) mediaUrl = stored.url;
+      if (stored.name) mediaName = stored.name;
       if (!body && stored.transcription) body = stored.transcription;
     }
 
@@ -302,7 +305,11 @@ export async function persistInbound(messages: InboundMessage[]) {
       }
     }
 
-    const { data: insertedMsg } = await db.from("messages").insert({
+    // media_name so existe apos a migration 0030. Enquanto ela nao roda, o insert
+    // com a coluna daria 42703 e o app pararia de gravar mensagens recebidas —
+    // entao tentamos com o nome e, se a coluna faltar, repetimos sem ele.
+    // (A extensao correta do arquivo ja vem do storage; o nome e so cosmetico.)
+    const msgRow: Record<string, unknown> = {
       organization_id: org,
       conversation_id: conversationId,
       direction: fromMe ? "out" : "in",
@@ -310,6 +317,7 @@ export async function persistInbound(messages: InboundMessage[]) {
       content_type: msg.contentType,
       body,
       media_url: mediaUrl,
+      media_name: mediaName,
       external_id: msg.externalId ?? null,
       author_name: fromMe ? null : msg.authorName ?? null,
       author_phone: fromMe ? null : msg.authorPhone ?? null,
@@ -318,7 +326,13 @@ export async function persistInbound(messages: InboundMessage[]) {
       reply_excerpt: replyExcerpt,
       reply_author: replyAuthor,
       status: fromMe ? "sent" : "delivered",
-    }).select("created_at").single();
+    };
+    let ins = await db.from("messages").insert(msgRow).select("created_at").single();
+    if (ins.error && /media_name/.test(ins.error.message ?? "")) {
+      delete msgRow.media_name;
+      ins = await db.from("messages").insert(msgRow).select("created_at").single();
+    }
+    const insertedMsg = ins.data;
     const inboundTs = insertedMsg?.created_at ?? null;
 
     await db

@@ -143,6 +143,19 @@ function Linkify({ text, className }: { text: string; className?: string }) {
   );
 }
 
+/**
+ * Link de download com o nome ORIGINAL do arquivo.
+ * O bucket "media" fica em outro dominio, entao o atributo `download` do <a> e
+ * IGNORADO pelo navegador; sem Content-Disposition o arquivo caia no disco com
+ * o nome do storage (e ".bin" quando o mimetype era octet-stream). O parametro
+ * `?download=<nome>` do Supabase Storage manda o header certo.
+ */
+function downloadUrl(url: string, name?: string | null) {
+  if (!/\/storage\/v1\/object\/public\//.test(url)) return url;
+  const sep = url.includes("?") ? "&" : "?";
+  return name ? `${url}${sep}download=${encodeURIComponent(name)}` : `${url}${sep}download`;
+}
+
 function MediaContent({ message, onImageClick }: { message: Message; onImageClick?: (url: string) => void }) {
   const url = message.media_url;
   if (!url) return null;
@@ -159,8 +172,17 @@ function MediaContent({ message, onImageClick }: { message: Message; onImageClic
       return <video controls src={url} className="mb-1 max-h-72 rounded-lg" />;
     case "document":
       return (
-        <a href={url} target="_blank" rel="noreferrer" download className="mb-1 flex items-center gap-2 rounded-lg bg-black/5 px-3 py-2 text-sm hover:bg-black/10">
-          <FileText size={18} /> <span className="underline">Abrir documento</span> <Download size={14} />
+        <a
+          href={downloadUrl(url, message.media_name)}
+          target="_blank"
+          rel="noreferrer"
+          download={message.media_name || undefined}
+          title={message.media_name || undefined}
+          className="mb-1 flex items-center gap-2 rounded-lg bg-black/5 px-3 py-2 text-sm hover:bg-black/10"
+        >
+          <FileText size={18} />
+          <span className="max-w-[220px] truncate underline">{message.media_name || "Abrir documento"}</span>
+          <Download size={14} />
         </a>
       );
     default:
@@ -322,8 +344,8 @@ export function MessageBubble({
               <ExternalLink size={16} /> Abrir original
             </a>
             <a
-              href={lightbox}
-              download
+              href={downloadUrl(lightbox, message.media_name)}
+              download={message.media_name || undefined}
               onClick={(e) => e.stopPropagation()}
               className="flex items-center gap-1 rounded-lg bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20"
               title="Baixar"

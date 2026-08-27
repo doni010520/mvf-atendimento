@@ -54,7 +54,7 @@ export interface ChannelProvider {
   getChatInfo?(jid: string): Promise<{ name?: string; image?: string }>;
   /** Baixa uma mídia recebida. UAZAPI: id da mensagem. Meta: media id.
    *  Pode devolver os bytes (buffer) quando o download exige auth (Meta). */
-  downloadMedia?(id: string): Promise<{ url?: string; buffer?: Buffer; mimetype?: string; transcription?: string }>;
+  downloadMedia?(id: string): Promise<{ url?: string; buffer?: Buffer; mimetype?: string; transcription?: string; fileName?: string }>;
   /** Reage a uma mensagem com um emoji (string vazia remove a reação). */
   reactMessage?(to: string, externalId: string, emoji: string): Promise<void>;
   /** Edita o texto de uma mensagem enviada. */
@@ -102,6 +102,7 @@ export interface InboundMessage {
   body?: string;
   mediaUrl?: string;
   mediaId?: string; // id da mídia (Meta) para download via Graph API
+  fileName?: string; // nome ORIGINAL do arquivo enviado pelo cliente (documento)
   externalId?: string; // id da mensagem no provedor
   timestamp?: string;
   isGroup?: boolean; // conversa de grupo

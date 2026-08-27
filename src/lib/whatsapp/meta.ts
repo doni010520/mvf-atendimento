@@ -431,6 +431,7 @@ export function parseMetaWebhook(payload: any): InboundMessage[] {
           body: m?.text?.body ?? m?.[m?.type]?.caption,
           mediaUrl: undefined, // a mídia da Meta é baixada depois via Graph API (downloadMedia)
           mediaId: m?.[m?.type]?.id, // id da mídia (audio/image/video/document/sticker)
+          fileName: m?.document?.filename ?? undefined,
           externalId: m?.id,
           timestamp: m?.timestamp,
         });
