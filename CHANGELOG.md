@@ -3,6 +3,16 @@
 Versões do MVF Chat. A versão no ar fica em `GET /api/version` e no topo da tela.
 A imagem é publicada com tag de versão (`:vX.Y.Z`) e do commit (`:<sha>`).
 
+## v2.41.6 — hotfix: envio de arquivo pelo atendente voltou a funcionar
+- **Regressão da v2.41.5.** A proteção contra a coluna `media_name` inexistente
+  (migration `0030` ainda não aplicada) foi parar na função de TEXTO por engano;
+  o insert da MÍDIA ficou desprotegido. Resultado entre 13h37 e 18h: o arquivo
+  ia para o cliente (o envio acontece antes), mas a mensagem não era gravada, o
+  atendente via "Falha no envio do arquivo" e reenviava — cliente recebendo o
+  mesmo arquivo 2–3 vezes e nada no histórico.
+- A proteção agora está no insert certo, e a falha de insert devolve erro
+  específico e vai para `app_logs` em vez de estourar num alerta genérico.
+
 ## v2.41.5 — arquivo do cliente baixa com a extensão certa (fim do ".bin")
 - **Documento do cliente virava `.bin`.** O mapa de mimetypes conhecia só 12 tipos
   (imagem/áudio/vídeo/PDF); planilha, Word, zip e afins caíam no fallback e iam

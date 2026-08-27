@@ -333,8 +333,9 @@ export async function sendMessage(
     replyExcerpt = q?.body ?? (q?.content_type && q.content_type !== "text" ? `[${q.content_type}]` : null);
   }
 
-  // Ver nota em inbound.ts: media_name so existe apos a migration 0030.
-  const outRow: Record<string, unknown> = {
+  const { data: msg } = await supabase
+    .from("messages")
+    .insert({
       organization_id: session.organization.id,
       conversation_id: conversationId,
       direction: "out",
@@ -345,13 +346,9 @@ export async function sendMessage(
       reply_to_external: replyToExternal ?? null,
       reply_excerpt: replyExcerpt,
       status: "pending",
-  };
-  let outIns = await supabase.from("messages").insert(outRow).select("id").single();
-  if (outIns.error && /media_name/.test(outIns.error.message ?? "")) {
-    delete outRow.media_name;
-    outIns = await supabase.from("messages").insert(outRow).select("id").single();
-  }
-  const msg = outIns.data;
+    })
+    .select("id")
+    .single();
 
   // Marca atividade IMEDIATAMENTE (antes do round-trip do provedor, que leva
   // segundos) para o cron de inatividade não encerrar a conversa que o atendente
@@ -936,22 +933,31 @@ export async function sendMediaMessage(formData: FormData) {
   const publicUrl = svc.storage.from("media").getPublicUrl(path).data.publicUrl;
 
   // Registra a mensagem (pendente) e envia pelo provedor.
-  const { data: msg } = await supabase
-    .from("messages")
-    .insert({
-      organization_id: session.organization.id,
-      conversation_id: conversationId,
-      direction: "out",
-      sender_type: "agent",
-      sender_id: session.userId,
-      content_type: content,
-      body: caption || null,
-      media_url: publicUrl,
-      media_name: file.name || null,
-      status: "pending",
-    })
-    .select("id")
-    .single();
+  // media_name so existe apos a migration 0030 — sem ela o insert falha e o
+  // atendente ve "Falha no envio do arquivo". Tenta com o nome; se a coluna
+  // nao existir, repete sem ele (o arquivo ja foi para o storage).
+  const mediaRow: Record<string, unknown> = {
+    organization_id: session.organization.id,
+    conversation_id: conversationId,
+    direction: "out",
+    sender_type: "agent",
+    sender_id: session.userId,
+    content_type: content,
+    body: caption || null,
+    media_url: publicUrl,
+    media_name: file.name || null,
+    status: "pending",
+  };
+  let mediaIns = await supabase.from("messages").insert(mediaRow).select("id").single();
+  if (mediaIns.error && /media_name/.test(mediaIns.error.message ?? "")) {
+    delete mediaRow.media_name;
+    mediaIns = await supabase.from("messages").insert(mediaRow).select("id").single();
+  }
+  if (mediaIns.error || !mediaIns.data) {
+    void logEvent("error", "atendente", `insert da mensagem de midia falhou: ${mediaIns.error?.message?.slice(0, 160)}`, { conversationId }, session.organization.id);
+    return { ok: false, error: "Falha ao registrar o arquivo na conversa. Tente novamente." };
+  }
+  const msg = mediaIns.data;
 
   try {
     const to = recipientOf(conv);
