@@ -3,6 +3,12 @@
 Versões do MVF Chat. A versão no ar fica em `GET /api/version` e no topo da tela.
 A imagem é publicada com tag de versão (`:vX.Y.Z`) e do commit (`:<sha>`).
 
+## v2.41.7 — IA não pergunta mais "Como posso ajudar?"
+- Depois de validar o CPF/CNPJ, o prompt mandava responder "Um momento por favor"
+  e **"Como posso ajudar?"** — pergunta genérica que costumava repetir algo que o
+  cliente já tinha dito. Agora a IA emenda direto no assunto; só pergunta quando o
+  cliente realmente não disse o que quer, e de forma específica.
+
 ## v2.41.6 — hotfix: envio de arquivo pelo atendente voltou a funcionar
 - **Regressão da v2.41.5.** A proteção contra a coluna `media_name` inexistente
   (migration `0030` ainda não aplicada) foi parar na função de TEXTO por engano;
