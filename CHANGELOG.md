@@ -3,6 +3,16 @@
 Versões do MVF Chat. A versão no ar fica em `GET /api/version` e no topo da tela.
 A imagem é publicada com tag de versão (`:vX.Y.Z`) e do commit (`:<sha>`).
 
+## v2.41.9 — correção do próprio conserto do nono dígito
+- Quando o contato existia nas DUAS variantes, a v2.41.8 tentava renomear o
+  duplicado para um telefone já ocupado: o update batia na chave única
+  (organization_id, phone), falhava calado e mesmo assim registrava "cadastro
+  corrigido" a cada mensagem (visto 5x seguidas no mesmo contato). A conversa
+  ia para o lugar certo, mas o log mentia e o update se repetia.
+- Agora só renomeia quando o número certo ainda NÃO existe, confere o erro do
+  update e registra o que realmente aconteceu. Par duplicado é resolvido pela
+  consolidação, não pelo webhook.
+
 ## v2.41.8 — resposta do atendente que não chegava (o nono dígito)
 - **Diagnóstico:** a Meta recusava com `131026 Message Undeliverable` e a
   mensagem sumia sem explicação — o bot entregava e a atendente não. O `wamid`

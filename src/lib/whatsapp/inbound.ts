@@ -177,12 +177,25 @@ export async function persistInbound(messages: InboundMessage[]) {
       const waId = msg.from.replace(/\D/g, "");
       const alt = phoneVariant(waId);
       if (waId) {
-        const { data: existente } = await db
-          .from("contacts").select("id, phone").eq("organization_id", org)
-          .in("phone", alt ? [waId, alt] : [waId]).order("created_at", { ascending: true }).limit(1).maybeSingle();
-        if (existente && existente.phone !== waId) {
-          await db.from("contacts").update({ phone: waId }).eq("id", existente.id);
-          void logEvent("info", "meta", `cadastro corrigido pelo wa_id: ${existente.phone} → ${waId}`, { contactId: existente.id }, org);
+        // Só renomeia o cadastro da OUTRA variante quando o número certo ainda
+        // não existe: se os dois existem, renomear violaria a chave única
+        // (organization_id, phone) — o update falhava calado e o "cadastro
+        // corrigido" era logado a cada mensagem sem ter corrigido nada.
+        // Nesse caso o upsert abaixo já joga a conversa no contato certo; o par
+        // duplicado é resolvido pela consolidação, não aqui.
+        const { data: doWaId } = await db
+          .from("contacts").select("id").eq("organization_id", org).eq("phone", waId).maybeSingle();
+        if (!doWaId && alt) {
+          const { data: doAlt } = await db
+            .from("contacts").select("id, phone").eq("organization_id", org).eq("phone", alt).maybeSingle();
+          if (doAlt) {
+            const { error: errRename } = await db.from("contacts").update({ phone: waId }).eq("id", doAlt.id);
+            if (!errRename) {
+              void logEvent("info", "meta", `cadastro corrigido pelo wa_id: ${alt} → ${waId}`, { contactId: doAlt.id }, org);
+            } else {
+              void logEvent("warn", "meta", `nao consegui corrigir ${alt} → ${waId}: ${errRename.message?.slice(0, 120)}`, { contactId: doAlt.id }, org);
+            }
+          }
         }
         phoneCadastro = waId;
       }
