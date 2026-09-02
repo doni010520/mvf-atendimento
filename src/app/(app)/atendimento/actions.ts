@@ -8,7 +8,7 @@ import { toMp3 } from "@/lib/whatsapp/audio-transcode";
 import { getMessages, getConversations } from "@/lib/data/conversations";
 import { logEvent } from "@/lib/log";
 import type { Channel, ContentType, InternalMention } from "@/lib/types";
-import { canonicalPhone } from "@/lib/utils";
+import { canonicalPhone, waIdFromWamid } from "@/lib/utils";
 import { notifyMention } from "@/lib/push/send";
 
 const isPreview = () => !process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -366,7 +366,7 @@ export async function sendMessage(
       .select("*")
       .eq("id", conv.channel_id)
       .single();
-    const to = recipientOf(conv);
+    const to = await waRecipient(supabase, conversationId, conv);
     // Menções: no texto enviado, "@Nome" vira "@<número>" (o que o WhatsApp linka).
     let waText = body;
     const mentionNums: string[] = [];
@@ -666,7 +666,7 @@ export async function sendTemplateMessage(
     .single();
 
   try {
-    const res = await provider.sendTemplate({ to: recipientOf(conv), name, language, components });
+    const res = await provider.sendTemplate({ to: await waRecipient(supabase, conversationId, conv), name, language, components });
     await supabase.from("messages").update({ status: "sent", external_id: res.externalId ?? null }).eq("id", msg!.id);
   } catch (e) {
     const raw = (e as Error)?.message ?? "";
@@ -960,7 +960,7 @@ export async function sendMediaMessage(formData: FormData) {
   const msg = mediaIns.data;
 
   try {
-    const to = recipientOf(conv);
+    const to = await waRecipient(supabase, conversationId, conv);
     // filename = nome ORIGINAL do arquivo — sem ele o cliente vê o nome gerado
     // do storage no documento (ex.: "abc123-1754....pdf").
     const res = await getProvider(channel as Channel).sendMedia({ to, url: publicUrl, caption, kind, filename: file.name || undefined });
@@ -989,6 +989,42 @@ function recipientOf(conv: { contact_phone: string; is_group?: boolean; contact_
   return conv.contact_phone;
 }
 
+/**
+ * Destinatário REAL: usa o wa_id que o próprio WhatsApp confirmou na última
+ * mensagem recebida, em vez do telefone do cadastro.
+ *
+ * Por quê: canonicalPhone() sempre adiciona o nono dígito ao gravar o contato,
+ * mas 93% dos wa_id da região vêm SEM o 9. A Meta tolera o número com o 9 a
+ * mais quase sempre — e no resto devolve "131026 Message Undeliverable": a
+ * resposta do atendente não chega e ninguém entende por quê (incidente
+ * Marianna Gama, 02/09: o bot entregava e a atendente não).
+ *
+ * Só troca quando é o MESMO número (DDD + os 8 últimos dígitos iguais); em
+ * qualquer outro caso mantém o cadastro.
+ */
+async function waRecipient(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  conversationId: string,
+  conv: { contact_phone: string; is_group?: boolean; contact_jid?: string | null },
+): Promise<string> {
+  const fallback = recipientOf(conv);
+  if (conv.is_group) return fallback;
+  const { data: last } = await supabase
+    .from("messages")
+    .select("external_id")
+    .eq("conversation_id", conversationId)
+    .eq("direction", "in")
+    .like("external_id", "wamid.%")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const waId = waIdFromWamid(last?.external_id);
+  if (!waId) return fallback;
+  const cad = (conv.contact_phone ?? "").replace(/\D/g, "");
+  const mesmoNumero = waId.slice(-8) === cad.slice(-8) && waId.slice(0, 4) === cad.slice(0, 4);
+  return mesmoNumero ? waId : fallback;
+}
+
 async function recipientFor(supabase: Awaited<ReturnType<typeof createClient>>, conversationId: string) {
   const { data: conv } = await supabase
     .from("conversation_overview")
@@ -997,7 +1033,7 @@ async function recipientFor(supabase: Awaited<ReturnType<typeof createClient>>, 
     .single();
   if (!conv) throw new Error("Conversa não encontrada.");
   const { data: channel } = await supabase.from("channels").select("*").eq("id", conv.channel_id).single();
-  return { to: recipientOf(conv), channel: channel as Channel };
+  return { to: await waRecipient(supabase, conversationId, conv), channel: channel as Channel };
 }
 
 /** Reage a uma mensagem com um emoji (vazio remove a reação). */

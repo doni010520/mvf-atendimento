@@ -3,6 +3,24 @@
 Versões do MVF Chat. A versão no ar fica em `GET /api/version` e no topo da tela.
 A imagem é publicada com tag de versão (`:vX.Y.Z`) e do commit (`:<sha>`).
 
+## v2.41.8 — resposta do atendente que não chegava (o nono dígito)
+- **Diagnóstico:** a Meta recusava com `131026 Message Undeliverable` e a
+  mensagem sumia sem explicação — o bot entregava e a atendente não. O `wamid`
+  provou o motivo: o bot responde ao `wa_id` do webhook (ex.: `557134020889`),
+  enquanto o atendente usava o telefone do cadastro, que `canonicalPhone()`
+  grava SEMPRE com o nono dígito (`5571934020889`). Na região, 93% dos `wa_id`
+  vêm SEM o 9; a Meta tolera o 9 a mais quase sempre, e no resto devolve 131026.
+- **Envio** passa a usar o `wa_id` confirmado pelo WhatsApp na última mensagem
+  recebida (só troca quando é o mesmo número: DDD + 8 dígitos finais iguais).
+- **Cadastro** no webhook da API Oficial grava o `wa_id` exato; se já existir
+  contato na outra variante, ele é corrigido em vez de duplicado — a base se
+  conserta conforme os clientes escrevem.
+- **Rede de segurança:** um 131026 dispara reenvio automático na outra variante
+  do mesmo número, corrige o cadastro e registra em `app_logs`. Antes só o
+  131047 (janela de 24h) tinha tratamento.
+- `canonicalPhone()` segue igual para número digitado/colado do SGP — ali o 9 é
+  o certo e é o que evita contato duplicado.
+
 ## v2.41.7 — IA não pergunta mais "Como posso ajudar?"
 - Depois de validar o CPF/CNPJ, o prompt mandava responder "Um momento por favor"
   e **"Como posso ajudar?"** — pergunta genérica que costumava repetir algo que o

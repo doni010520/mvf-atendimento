@@ -7,7 +7,7 @@ import { runChatbot } from "./chatbot";
 import { getProvider } from "./index";
 import { logEvent } from "@/lib/log";
 import { notifyInboundMessage } from "@/lib/push/send";
-import { canonicalPhone } from "@/lib/utils";
+import { canonicalPhone, phoneVariant } from "@/lib/utils";
 
 // Cache de participantes por grupo (5 min) para resolver menções sem bater toda hora.
 const groupPartsCache = new Map<string, { at: number; parts: { phone: string; lid: string }[] }>();
@@ -165,12 +165,34 @@ export async function persistInbound(messages: InboundMessage[]) {
     // Para mensagens fromMe (eco do celular) em 1:1, NÃO passamos nome —
     // o chat.name do webhook vem com o nome do DONO, não do contato.
     const contactName = (fromMe && !isGroup) ? null : (msg.contactName ?? null);
+    // Telefone do cadastro. Para a API Oficial, `msg.from` É o wa_id — o número
+    // pelo qual a Meta ACEITA entregar. canonicalPhone() sempre acrescenta o
+    // nono dígito, e enviar para o número com o 9 a mais volta 131026 em parte
+    // dos casos (a resposta do atendente some). Então, no canal Meta, o wa_id
+    // manda: se já existe cadastro na outra variante, ele é CORRIGIDO em vez de
+    // duplicado — o que também conserta a base antiga conforme o cliente escreve.
+    const ehMeta = (channel as Channel).type === "meta_cloud";
+    let phoneCadastro = isGroup ? msg.from : canonicalPhone(msg.from);
+    if (ehMeta && !isGroup) {
+      const waId = msg.from.replace(/\D/g, "");
+      const alt = phoneVariant(waId);
+      if (waId) {
+        const { data: existente } = await db
+          .from("contacts").select("id, phone").eq("organization_id", org)
+          .in("phone", alt ? [waId, alt] : [waId]).order("created_at", { ascending: true }).limit(1).maybeSingle();
+        if (existente && existente.phone !== waId) {
+          await db.from("contacts").update({ phone: waId }).eq("id", existente.id);
+          void logEvent("info", "meta", `cadastro corrigido pelo wa_id: ${existente.phone} → ${waId}`, { contactId: existente.id }, org);
+        }
+        phoneCadastro = waId;
+      }
+    }
     const { data: contact } = await db
       .from("contacts")
       .upsert(
         {
           organization_id: org,
-          phone: isGroup ? msg.from : canonicalPhone(msg.from),
+          phone: phoneCadastro,
           name: contactName,
           is_group: isGroup,
         },
@@ -594,6 +616,18 @@ export async function persistMetaStatuses(
       // atendente: reenvia como template pela mesma linha; se não der, por um
       // canal uazapi (sem restrição de janela). `msg.status !== "failed"`
       // impede reenvio duplicado quando a Meta repete o evento de falha.
+      // 131026 "Message Undeliverable": quase sempre o NONO DÍGITO. O cadastro
+      // guarda 55+DDD+9+8dígitos (canonicalPhone sempre põe o 9), mas o wa_id
+      // real da região costuma vir SEM ele. Reenvia na outra variante do MESMO
+      // número e, se a Meta aceitar, corrige o cadastro para os próximos envios.
+      if (u.errorCode === 131026 && msg.status !== "failed" && msg.content_type === "text" && msg.body) {
+        await resendToPhoneVariant(db, {
+          id: msg.id,
+          organization_id: msg.organization_id,
+          conversation_id: msg.conversation_id,
+          body: msg.body,
+        }).catch((e) => console.error("fallback 9o digito", e));
+      }
       if (
         u.errorCode === 131047 &&
         msg.status !== "failed" &&
@@ -619,6 +653,47 @@ export async function persistMetaStatuses(
     if ((STATUS_RANK[u.status] ?? 0) > (STATUS_RANK[msg.status] ?? 0)) {
       await db.from("messages").update({ status: u.status }).eq("id", msg.id);
     }
+  }
+}
+
+/**
+ * Reenvia uma mensagem que a Meta recusou com 131026 para a OUTRA variante do
+ * mesmo número (com/sem o nono dígito) e, se entregar, corrige contacts.phone.
+ * É o conserto de quem já está com o cadastro errado; o envio novo já sai certo
+ * porque usa o wa_id confirmado pelo WhatsApp.
+ */
+async function resendToPhoneVariant(
+  db: ReturnType<typeof createServiceClient>,
+  msg: { id: string; organization_id: string; conversation_id: string; body: string },
+): Promise<boolean> {
+  const { data: conv } = await db.from("conversations").select("contact_id, channel_id").eq("id", msg.conversation_id).maybeSingle();
+  if (!conv?.contact_id || !conv?.channel_id) return false;
+  const [{ data: contact }, { data: channel }] = await Promise.all([
+    db.from("contacts").select("id, phone, is_group").eq("id", conv.contact_id).maybeSingle(),
+    db.from("channels").select("*").eq("id", conv.channel_id).maybeSingle(),
+  ]);
+  if (!contact?.phone || contact.is_group || !channel) return false;
+  const alt = phoneVariant(contact.phone);
+  if (!alt) return false;
+  // Texto de atendente carrega o prefixo "*Nome:*" — mantém como está (o
+  // cliente já vê assim nas outras mensagens).
+  try {
+    const res = await getProvider(channel as Channel).sendText({ to: alt, text: msg.body });
+    await db.from("messages").update({ status: "sent", external_id: res.externalId ?? null }).eq("id", msg.id);
+    // Corrige o cadastro — a menos que a outra variante já exista como contato
+    // (aí mexer criaria conflito na chave organization_id+phone).
+    const { data: clash } = await db
+      .from("contacts").select("id").eq("organization_id", msg.organization_id).eq("phone", alt).maybeSingle();
+    if (!clash) await db.from("contacts").update({ phone: alt }).eq("id", contact.id);
+    void logEvent(
+      "info", "meta",
+      `131026 resolvido: reenviado para ${alt} (era ${contact.phone})${clash ? " — cadastro NÃO alterado, número já existe" : " — cadastro corrigido"}`,
+      { messageId: msg.id, de: contact.phone, para: alt }, msg.organization_id,
+    );
+    return true;
+  } catch (e) {
+    void logEvent("warn", "meta", `131026: reenvio para ${alt} também falhou (${(e as Error)?.message?.slice(0, 120)})`, { messageId: msg.id }, msg.organization_id);
+    return false;
   }
 }
 

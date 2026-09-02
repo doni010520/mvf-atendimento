@@ -30,3 +30,39 @@ export function canonicalPhone(raw: string): string {
   if (d.startsWith("55") && d.length === 12) return d.slice(0, 4) + "9" + d.slice(4);
   return d;
 }
+
+/**
+ * Variante do MESMO celular BR com/sem o nono dígito (5573 8xxxxxxx <-> 5573 98xxxxxxx).
+ * DDD e os 8 últimos dígitos são iguais; só o "9" muda. Devolve null quando não
+ * há variante (número curto, estrangeiro, grupo).
+ */
+export function phoneVariant(raw: string): string | null {
+  const d = (raw ?? "").replace(/\D/g, "");
+  if (!d.startsWith("55")) return null;
+  if (d.length === 13 && d[4] === "9") return d.slice(0, 4) + d.slice(5); // tira o 9
+  if (d.length === 12) return d.slice(0, 4) + "9" + d.slice(4);           // põe o 9
+  return null;
+}
+
+/**
+ * Extrai o wa_id (número REAL do WhatsApp) de um id de mensagem da Meta.
+ * O `wamid` carrega o número em base64 — e ele é a ÚNICA fonte confiável:
+ * na Bahia 93% dos wa_id vêm SEM o nono dígito, enquanto canonicalPhone()
+ * SEMPRE adiciona o 9 ao gravar o contato. Enviar para o número com o 9 a
+ * mais é tolerado pela Meta na maioria dos casos, mas em parte deles volta
+ * "131026 Message Undeliverable" — a mensagem do atendente simplesmente não
+ * chega, sem aviso na tela (incidente Marianna Gama, 02/09).
+ */
+export function waIdFromWamid(wamid?: string | null): string | null {
+  if (!wamid || !wamid.startsWith("wamid.")) return null;
+  try {
+    const b64 = wamid.slice(6);
+    const bin = typeof Buffer !== "undefined"
+      ? Buffer.from(b64 + "==", "base64").toString("latin1")
+      : atob(b64 + "==");
+    const m = bin.match(/[0-9]{10,15}/);
+    return m ? m[0] : null;
+  } catch {
+    return null;
+  }
+}
