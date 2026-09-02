@@ -1,4 +1,5 @@
 import type { Channel } from "@/lib/types";
+import { phoneVariant } from "@/lib/utils";
 import type {
   ChannelProvider,
   ConnectResult,
@@ -213,29 +214,51 @@ export class UazapiProvider implements ChannelProvider {
     }
   }
 
+  /**
+   * "no LID found for <numero>@s.whatsapp.net": o número não existe no WhatsApp
+   * NA FORMA enviada — quase sempre o nono dígito (o cadastro tem 55+DDD+9+8,
+   * o WhatsApp do cliente é sem o 9, ou vice-versa). Diferente da Meta, que
+   * tolera e às vezes devolve 131026 pelo webhook, aqui o erro é SÍNCRONO:
+   * dá para tentar a outra variante na hora e entregar na mesma ação.
+   * (Incidente TATIANE LICITAÇÕES, canal FIRMINO ALVES, 02/09.)
+   */
+  private semLid(e: unknown): boolean {
+    return /no LID found/i.test((e as Error)?.message ?? "");
+  }
+
   async sendText({ to, text, replyId, mentions }: SendTextParams) {
-    const r = await this.req("/send/text", {
-      method: "POST",
-      body: JSON.stringify({
-        number: to,
-        text,
-        ...(replyId ? { replyid: replyId } : {}),
-        ...(mentions && mentions.length ? { mentions: mentions.join(",") } : {}),
-      }),
+    const body = (number: string) => JSON.stringify({
+      number,
+      text,
+      ...(replyId ? { replyid: replyId } : {}),
+      ...(mentions && mentions.length ? { mentions: mentions.join(",") } : {}),
     });
+    let r;
+    try {
+      r = await this.req("/send/text", { method: "POST", body: body(to) });
+    } catch (e) {
+      const alt = this.semLid(e) ? phoneVariant(to) : null;
+      if (!alt) throw e;
+      r = await this.req("/send/text", { method: "POST", body: body(alt) });
+    }
     return { externalId: r?.id ?? r?.messageId ?? r?.messageid };
   }
 
   async sendMedia({ to, url, caption, kind, replyId, filename }: SendMediaParams) {
-    const r = await this.req("/send/media", {
-      method: "POST",
+    const body = (number: string) => JSON.stringify({
+      number, type: kind, file: url, text: caption,
       // docName: nome de exibição do documento (senão o cliente vê o nome do storage).
-      body: JSON.stringify({
-        number: to, type: kind, file: url, text: caption,
-        ...(kind === "document" && filename ? { docName: filename } : {}),
-        ...(replyId ? { replyid: replyId } : {}),
-      }),
+      ...(kind === "document" && filename ? { docName: filename } : {}),
+      ...(replyId ? { replyid: replyId } : {}),
     });
+    let r;
+    try {
+      r = await this.req("/send/media", { method: "POST", body: body(to) });
+    } catch (e) {
+      const alt = this.semLid(e) ? phoneVariant(to) : null;
+      if (!alt) throw e;
+      r = await this.req("/send/media", { method: "POST", body: body(alt) });
+    }
     return { externalId: r?.id ?? r?.messageId ?? r?.messageid };
   }
 

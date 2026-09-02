@@ -3,6 +3,18 @@
 Versões do MVF Chat. A versão no ar fica em `GET /api/version` e no topo da tela.
 A imagem é publicada com tag de versão (`:vX.Y.Z`) e do commit (`:<sha>`).
 
+## v2.41.10 — nono dígito também nos canais uazapi
+- **"no LID found for <numero>@s.whatsapp.net"**: o uazapi recusa o envio quando
+  o número não existe NA FORMA enviada — o cadastro com o 9 e o WhatsApp do
+  cliente sem ele (ou o contrário). Diferente da Meta, que tolera e às vezes
+  reclama depois, aqui o erro vem na hora: agora o envio tenta a outra variante
+  do mesmo número imediatamente e entrega na mesma ação.
+- Vale para texto e mídia, em todos os canais uazapi (FIRMINO ALVES, NOVA CANAÃ,
+  RIO DO MEIO, IBICUI 2, IGUAI 2) — inclui os 279 pares duplicados que não
+  puderam ser consolidados por falta do identificador da Meta.
+- Incidente: TATIANE LICITAÇÕES, protocolo 202609020242, 4 mensagens da atendente
+  recusadas em sequência.
+
 ## v2.41.9 — correção do próprio conserto do nono dígito
 - Quando o contato existia nas DUAS variantes, a v2.41.8 tentava renomear o
   duplicado para um telefone já ocupado: o update batia na chave única
