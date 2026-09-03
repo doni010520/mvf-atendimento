@@ -391,14 +391,8 @@ export async function sendMessage(
     void logEvent("error", "send", `Falha ao enviar mensagem: ${(e as Error)?.message ?? e}`, { conversationId });
     const raw = (e as Error)?.message ?? "";
     // Janela de 24h da Meta (erro 131047/131026) → mensagem amigável.
-    deliveryError = /131047|131026|re-?engag|24 ?h|outside|template/i.test(raw)
-      ? "Fora da janela de 24h: neste canal oficial, só é possível enviar um modelo (template) aprovado."
-      // Número inexistente no WhatsApp (caso Licia, 21/08): sem isso, virava
-      // "não entregue" genérico e o atendente ficava reenviando à toa.
-      : /not on whatsapp|isinwhatsapp["\s:]*false|não está no whatsapp/i.test(raw)
-        ? "Este número não foi encontrado no WhatsApp. Confirme se o número está correto antes de tentar de novo."
-        : "Não foi possível entregar a mensagem.";
-    await supabase.from("messages").update({ status: "failed" }).eq("id", msg!.id);
+    deliveryError = motivoFalhaEnvio(raw);
+    await markFailed(supabase, msg!.id, deliveryError);
   }
 
   // Se o atendente respondeu numa conversa que estava na IA, a IA para
@@ -671,7 +665,6 @@ export async function sendTemplateMessage(
   } catch (e) {
     const raw = (e as Error)?.message ?? "";
     console.error("sendTemplate", raw);
-    await supabase.from("messages").update({ status: "failed" }).eq("id", msg!.id);
     // Extrai a mensagem de erro legível da Meta (JSON em error.message).
     let friendly = "Falha ao enviar o modelo.";
     const m = raw.match(/"message"\s*:\s*"([^"]+)"/);
@@ -682,6 +675,9 @@ export async function sendTemplateMessage(
       friendly = "Modelo não encontrado/aprovado para este número. Verifique o idioma e o status na Meta.";
     else if (/132012|param/i.test(raw))
       friendly = "Parâmetros do modelo incorretos (variáveis faltando ou a mais).";
+    else if (/131026|not on whatsapp|isinwhatsapp["\s:]*false|não está no whatsapp/i.test(raw))
+      friendly = "Este número não foi encontrado no WhatsApp. Confirme se o número está correto antes de tentar de novo.";
+    await markFailed(supabase, msg!.id, friendly);
     return { ok: false, error: friendly };
   }
   // Enviar um template é a reabertura deliberada do contato (fora da janela de 24h):
@@ -967,7 +963,7 @@ export async function sendMediaMessage(formData: FormData) {
     await supabase.from("messages").update({ status: "sent", external_id: res.externalId ?? null }).eq("id", msg!.id);
   } catch (e) {
     console.error("sendMedia error", e);
-    await supabase.from("messages").update({ status: "failed" }).eq("id", msg!.id);
+    await markFailed(supabase, msg!.id, motivoFalhaEnvio((e as Error)?.message ?? ""));
   }
 
   await supabase
@@ -984,6 +980,30 @@ export async function sendMediaMessage(formData: FormData) {
 }
 
 /** Destinatário do provedor: para grupos usa o JID completo (preserva traço). */
+/**
+ * Traduz o erro cru de envio pra uma frase que o atendente entende, em vez do
+ * balão só dizer "não entregue". Cobre os motivos vistos em produção — janela
+ * de 24h fechada e número inexistente no WhatsApp (caso Licia, 21/08; e as
+ * falhas de campanha de 03/09, todas número sem WhatsApp).
+ */
+function motivoFalhaEnvio(raw: string): string {
+  if (/131047|131026|re-?engag|24 ?h|outside|template/i.test(raw))
+    return "Fora da janela de 24h: neste canal oficial, só é possível enviar um modelo (template) aprovado.";
+  if (/not on whatsapp|isinwhatsapp["\s:]*false|não está no whatsapp|no lid found/i.test(raw))
+    return "Este número não foi encontrado no WhatsApp. Confirme se o número está correto antes de tentar de novo.";
+  return "Não foi possível entregar a mensagem.";
+}
+
+/** Marca a mensagem como falha e grava o motivo (tolerante à migration da coluna ainda não aplicada). */
+async function markFailed(supabase: Awaited<ReturnType<typeof createClient>>, messageId: string, reason?: string) {
+  const patch: Record<string, unknown> = { status: "failed" };
+  if (reason) patch.failure_reason = reason;
+  const { error } = await supabase.from("messages").update(patch).eq("id", messageId);
+  if (error && /failure_reason/.test(error.message ?? "")) {
+    await supabase.from("messages").update({ status: "failed" }).eq("id", messageId);
+  }
+}
+
 function recipientOf(conv: { contact_phone: string; is_group?: boolean; contact_jid?: string | null }) {
   if (conv.is_group) return conv.contact_jid || `${conv.contact_phone}@g.us`;
   return conv.contact_phone;
@@ -1232,7 +1252,7 @@ export async function sendLocationMessage(
     await supabase.from("messages").update({ status: "sent", external_id: res?.externalId ?? null }).eq("id", msg!.id);
   } catch (e) {
     console.error("sendLocation", e);
-    await supabase.from("messages").update({ status: "failed" }).eq("id", msg!.id);
+    await markFailed(supabase, msg!.id, motivoFalhaEnvio((e as Error)?.message ?? ""));
   }
   await supabase.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conversationId);
   revalidatePath("/atendimento");
@@ -1268,7 +1288,7 @@ export async function sendContactMessage(conversationId: string, fullName: strin
     await supabase.from("messages").update({ status: "sent", external_id: res?.externalId ?? null }).eq("id", msg!.id);
   } catch (e) {
     console.error("sendContact", e);
-    await supabase.from("messages").update({ status: "failed" }).eq("id", msg!.id);
+    await markFailed(supabase, msg!.id, motivoFalhaEnvio((e as Error)?.message ?? ""));
   }
   await supabase.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conversationId);
   revalidatePath("/atendimento");
@@ -1983,7 +2003,7 @@ export async function sgpSendContrato(conversationId: string, contrato: number):
     return { ok: true, message: `Contrato ${contrato} enviado ao cliente em PDF ✅` };
   } catch (e) {
     console.error("sgpSendContrato send", e);
-    await supabase.from("messages").update({ status: "failed" }).eq("id", msg!.id);
+    await markFailed(supabase, msg!.id, motivoFalhaEnvio((e as Error)?.message ?? ""));
     return { ok: false, message: "Falha ao enviar o contrato ao cliente. Tente novamente." };
   }
 }

@@ -305,7 +305,7 @@ export function MessageBubble({
             {out && message.status === "failed" ? (
               <span
                 className="flex items-center gap-0.5 rounded bg-red-600 px-1 py-px font-semibold text-white"
-                title="A Meta recusou a entrega — geralmente cliente sem conversa nas últimas 24h (janela fechada). Se for texto, o sistema reenvia sozinho como mensagem automática."
+                title={message.failure_reason || "Não foi possível entregar a mensagem."}
               >
                 <AlertCircle size={10} /> não entregue
               </span>

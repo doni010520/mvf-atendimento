@@ -352,6 +352,7 @@ export interface Message {
   body: string | null;
   media_url: string | null;
   media_name?: string | null; // nome ORIGINAL do arquivo (documento)
+  failure_reason?: string | null; // motivo da falha, em português, para mostrar ao atendente
   status: "pending" | "sent" | "delivered" | "read" | "failed";
   external_id: string | null;
   author_name?: string | null;

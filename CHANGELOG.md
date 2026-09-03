@@ -3,6 +3,20 @@
 Versões do MVF Chat. A versão no ar fica em `GET /api/version` e no topo da tela.
 A imagem é publicada com tag de versão (`:vX.Y.Z`) e do commit (`:<sha>`).
 
+## v2.41.11 — "não entregue" agora diz o motivo
+- A Meta e o uazapi já mandavam o motivo real da falha (número inexistente,
+  janela de 24h, limite de mensagens...), mas o balão sempre mostrava o mesmo
+  aviso genérico e a tooltip fixa dizia "geralmente janela fechada" mesmo
+  quando não era. O motivo real ficava só em log técnico que a operação não
+  acompanha (caso: 26 templates recusados por número sem WhatsApp, 02-03/09,
+  todos aparecendo como "não entregue" sem explicação).
+- Agora o motivo é traduzido pra português e gravado na mensagem
+  (`messages.failure_reason`, migration `0031`) — passar o mouse em "não
+  entregue" mostra a razão real. Cobre os 9 pontos de envio: texto, template,
+  anexo, localização, contato, PIX manual, boleto e contrato em PDF.
+- Sem a migration a coluna não existe: os inserts continuam funcionando
+  (mesmo padrão tolerante das correções anteriores), só sem o motivo detalhado.
+
 ## v2.41.10 — nono dígito também nos canais uazapi
 - **"no LID found for <numero>@s.whatsapp.net"**: o uazapi recusa o envio quando
   o número não existe NA FORMA enviada — o cadastro com o 9 e o WhatsApp do

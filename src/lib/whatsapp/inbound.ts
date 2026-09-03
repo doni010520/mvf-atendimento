@@ -598,6 +598,31 @@ export async function persistStatusUpdates(updates: { externalId: string; status
  * entregar (ex.: mídia que o cliente não consegue baixar), o motivo chega aqui
  * — antes esses eventos eram ignorados e a mensagem ficava "sent" para sempre.
  */
+/**
+ * Traduz o código de erro da Meta pra uma frase que o atendente entende, em
+ * vez do balão só dizer "não entregue" sem explicar por quê. Cobre os casos
+ * vistos em produção; código desconhecido cai num texto genérico com o
+ * próprio código, para dar pra procurar depois.
+ */
+function motivoFalhaMeta(errorCode?: number, errorTitle?: string): string {
+  switch (errorCode) {
+    case 131026:
+      return "Esse número não está no WhatsApp (ou o cadastro está errado). Confira o telefone.";
+    case 131047:
+      return "Cliente sem conversa há mais de 24h — reenviando automaticamente por modelo aprovado.";
+    case 131056:
+      return "Limite de mensagens para esse cliente atingido — aguarde antes de tentar de novo.";
+    case 131009:
+      return "Parâmetro inválido no envio (verifique o conteúdo da mensagem).";
+    case 131053:
+      return "Não foi possível enviar a mídia (arquivo não suportado ou inacessível).";
+    case 470:
+      return "Fora da janela de resposta gratuita — precisa de um modelo aprovado.";
+    default:
+      return errorTitle ? `A Meta recusou: ${errorTitle}${errorCode ? ` (código ${errorCode})` : ""}` : "A Meta recusou a entrega.";
+  }
+}
+
 export async function persistMetaStatuses(
   updates: { externalId: string; status: "sent" | "delivered" | "read" | "failed"; errorCode?: number; errorTitle?: string; errorDetails?: string }[],
 ) {
@@ -615,7 +640,11 @@ export async function persistMetaStatuses(
       .maybeSingle();
     if (!msg) continue;
     if (u.status === "failed") {
-      await db.from("messages").update({ status: "failed" }).eq("id", msg.id);
+      const motivo = motivoFalhaMeta(u.errorCode, u.errorTitle);
+      const { error: errUpd } = await db.from("messages").update({ status: "failed", failure_reason: motivo }).eq("id", msg.id);
+      if (errUpd && /failure_reason/.test(errUpd.message ?? "")) {
+        await db.from("messages").update({ status: "failed" }).eq("id", msg.id);
+      }
       void logEvent(
         "error",
         "meta",
