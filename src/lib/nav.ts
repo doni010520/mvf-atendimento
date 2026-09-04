@@ -14,6 +14,7 @@ import {
   Building2,
   Contact,
   Sparkles,
+  ClipboardList,
   type LucideIcon,
 } from "lucide-react";
 
@@ -57,6 +58,7 @@ export const NAV: NavGroup[] = [
       { href: "/atendentes", label: "Atendentes", icon: Users },
       { href: "/departamentos", label: "Departamentos", icon: Layers },
       { href: "/clientes", label: "Clientes", icon: Contact },
+      { href: "/melhorias", label: "Melhorias e falhas", icon: ClipboardList },
       { href: "/integracoes", label: "SGP", icon: Plug },
       { href: "/ajustes", label: "Ajustes", icon: Settings },
     ],

@@ -3,6 +3,38 @@
 Versões do MVF Chat. A versão no ar fica em `GET /api/version` e no topo da tela.
 A imagem é publicada com tag de versão (`:vX.Y.Z`) e do commit (`:<sha>`).
 
+## v2.41.14 — Quadro de melhorias e falhas
+- Nova tela `/melhorias`, mesmo desenho já validado em produção no
+  correa-atendimento desde 01/09/26 (mesma família de app — código do
+  quadro copiado quase 1:1, só a notificação de grupo foi reduzida ao
+  mínimo porque o MVF não tem o transporte de avisos internos do Corrêa).
+- Quatro colunas (Novo · Analisando · Resolvendo · Concluído). Qualquer
+  pessoa registra falha ou melhoria, com título, descrição opcional e print
+  opcional (até 8 MB) — sem trava de permissão, decisão deliberada: time
+  pequeno, travar aqui só cria atrito.
+- Card recebe um NÚMERO (#1, #2...) assim que criado — é como a equipe vai
+  se referir a ele ("resolveu o 14?").
+- **Duas formas de mover**: arrastar (desktop) e um seletor de status dentro
+  do card. O kanban de conversas usa só `draggable` do HTML5, que não
+  funciona em toque — e quem relata problema costuma estar no celular, com
+  o print na mão. Copiar sem o seletor entregaria uma tela que metade da
+  equipe não consegue operar.
+- Card é gravado ANTES do upload do print: se a imagem falhar, o texto do
+  relato não se perde. Erro no envio não fecha o formulário, para não
+  perder o que a pessoa já escreveu.
+- Trava síncrona contra duplo-clique no botão Enviar (useRef, não useState)
+  — o `disabled` de um `useState` depende de um re-render, que não é rápido
+  o bastante para dois cliques em sequência; já veio assim do Corrêa, onde
+  esse exato bug duplicou um relato no primeiro dia de uso.
+- Sem comentários, prioridade, responsável, prazo, busca ou exclusão —
+  fora de escopo de propósito. Concluído mostra só os últimos 30 dias.
+- Aviso de novo card num grupo do WhatsApp é opcional e nasce desligado:
+  preencha `feedback_notifier_channel_id` (canal uazapi conectado) e
+  `feedback_group_jid` em `organizations.settings` para ligar.
+- Testes: 16 casos cobrindo validação, formatação do aviso, agrupamento por
+  coluna e o cálculo de "há quanto tempo parado" — trazidos junto com a
+  lógica, e o projeto ganhou `vitest` (`npm test`), que ainda não existia.
+
 ## v2.41.13 — corrida do atendente x IA em conversa nova
 - **Incidente Alexandre Morsan (04/09, protocolo 202609040053):** cliente
   escreveu, Alexandre assumiu dentro dos 8s de debounce, mas a IA respondeu do
