@@ -3,6 +3,20 @@
 Versões do MVF Chat. A versão no ar fica em `GET /api/version` e no topo da tela.
 A imagem é publicada com tag de versão (`:vX.Y.Z`) e do commit (`:<sha>`).
 
+## v2.41.15 — IA não sabia que dia era hoje
+- **Incidente protocolo 202609040059, 04/09:** a IA disse "você tem faturas em
+  aberto, a mais recente venceu em 05/09/2026" — no dia 04/09, ou seja, um dia
+  ANTES do vencimento. A cliente corrigiu ("Hoje ainda é 04") e só na segunda
+  tentativa a IA acertou ("faturas a vencer... vencimento em 05/09/2026").
+- **Causa:** o prompt informava a IA só do dia da semana e da hora ("sexta-feira,
+  10:09") — NUNCA a data completa. Sem saber o dia/mês/ano de hoje, não tem como
+  a IA comparar com o vencimento de uma fatura e dizer se já venceu ou não; ela
+  estava adivinhando.
+- Corrigido: o "Momento atual" do prompt agora leva a data completa
+  (dia/mês/ano), e uma regra explícita manda comparar o vencimento com hoje
+  antes de dizer "vencida"/"vence hoje"/"a vencer" — nunca mais "venceu" para
+  uma data futura.
+
 ## v2.41.14 — Quadro de melhorias e falhas
 - Nova tela `/melhorias`, mesmo desenho já validado em produção no
   correa-atendimento desde 01/09/26 (mesma família de app — código do
