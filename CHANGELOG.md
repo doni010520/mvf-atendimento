@@ -3,6 +3,28 @@
 Versões do MVF Chat. A versão no ar fica em `GET /api/version` e no topo da tela.
 A imagem é publicada com tag de versão (`:vX.Y.Z`) e do commit (`:<sha>`).
 
+## v2.41.17 — HOTFIX GRAVE: mensagem indo pro número da própria linha (uazapi)
+- **Regressão da v2.41.12, ~3h no ar (10:14-13:2x BRT, 04/09):** em TODOS os
+  canais uazapi (Nova Canaã, Rio do Meio, Firmino Alves, Ibicuí 2, Iguaí 2),
+  mensagem de atendente ia para o número DA PRÓPRIA LINHA, não para o cliente.
+  30 mensagens de atendente identificadas na janela.
+- **Causa:** `waRecipient()` extraía um "número confirmado" do `external_id`
+  da última mensagem recebida — correto para a Meta (`wamid.*` carrega o
+  número real do cliente), mas o formato do uazapi (`"<numero>:<id>"`) tem
+  como prefixo o número DA PRÓPRIA INSTÂNCIA (o "owner"), nunca o do cliente
+  — confirmado direto na API deles (`instance/status`) para duas linhas. A
+  v2.41.12 tirou a trava de DDD que, por coincidência, blindava esse engano
+  desde a v2.41.8.
+- **Correção:** `waRecipient()` só aceita o formato da Meta agora
+  (`waIdFromWamid`); a função `waIdFromExternalId` foi REMOVIDA do código —
+  não deve sobrar pra ser reusada por engano. Canal uazapi volta a usar o
+  telefone do cadastro, com o retry do nono dígito que já vive dentro de
+  `uazapi.ts` (sendText/sendMedia) como rede de segurança.
+- **Descoberto por:** relato da atendente Micaely ("minhas mensagens não
+  estão indo desde 10:30") — bate com o horário do deploy que causou o bug.
+- Vale reenviar manualmente qualquer mensagem enviada nos canais uazapi entre
+  10:14 e agora (04/09) que o cliente não confirmou ter recebido.
+
 ## v2.41.16 — retry automático no erro genérico da Meta
 - **Incidente Alexandre Morsan → Geovana Nascimento, 04/09:** mensagem falhou
   com `[131000] Something went wrong` (HTTP 500 genérico do lado da Meta, sem

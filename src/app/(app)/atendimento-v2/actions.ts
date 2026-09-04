@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getSession } from "@/lib/auth";
 import { logEvent } from "@/lib/log";
+import type { ConversationOverview } from "@/lib/types";
 
 /**
  * Move uma conversa entre as colunas do board (drag-drop):
@@ -53,4 +54,52 @@ export async function moveConversationStatus(id: string, status: "open" | "queue
   }).then(() => {}, () => {});
   revalidatePath("/atendimento-v2");
   return { ok: true };
+}
+
+export type BuscaEncerradosResultado =
+  | { ok: true; itens: ConversationOverview[] }
+  | { ok: false; erro: string };
+
+/**
+ * Busca atendimentos ENCERRADOS por telefone num período — direto no banco,
+ * sem o teto de 500 (ativas) / 150 (encerradas) que a listagem padrão usa
+ * (getConversations). Esse teto existe pra tela do dia a dia não ficar
+ * pesada, mas ele corta o histórico: um atendimento de agosto some da lista
+ * se já houver 150 encerramentos mais recentes — e o atendente que só lembra
+ * "foi em algum dia de agosto" não tem como encontrar rolando a tela.
+ *
+ * Telefone é OBRIGATÓRIO: sem ele a busca varreria a organização inteira por
+ * um período largo, o que é lento e não é o caso de uso (a pessoa sempre sabe
+ * de qual cliente é o atendimento, só não lembra o dia exato).
+ */
+export async function buscarEncerradosPorPeriodo(params: {
+  telefone: string;
+  dataInicio: string; // "YYYY-MM-DD"
+  dataFim: string; // "YYYY-MM-DD"
+}): Promise<BuscaEncerradosResultado> {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return { ok: true, itens: [] };
+  const session = await getSession();
+  if (!session?.organization) return { ok: false, erro: "Sessão expirada. Recarregue a página." };
+
+  const telefone = params.telefone.replace(/\D/g, "");
+  if (!telefone) return { ok: false, erro: "Informe o telefone do cliente." };
+  if (!params.dataInicio || !params.dataFim) return { ok: false, erro: "Informe a data inicial e a data final." };
+  if (params.dataInicio > params.dataFim) return { ok: false, erro: "A data inicial não pode ser depois da data final." };
+
+  const sb = await createClient();
+  // ENCERRADA é histórico visível a todo atendente (mesma regra de
+  // getConversations em lib/data/conversations.ts) — sem filtro extra de dono.
+  const { data, error } = await sb
+    .from("conversation_overview")
+    .select("*")
+    .eq("organization_id", session.organization.id)
+    .eq("status", "closed")
+    .like("contact_phone", `%${telefone}%`)
+    .gte("closed_at", `${params.dataInicio}T00:00:00`)
+    .lte("closed_at", `${params.dataFim}T23:59:59.999`)
+    .order("closed_at", { ascending: false })
+    .limit(200);
+
+  if (error) return { ok: false, erro: "Não foi possível buscar agora. Tente de novo em instantes." };
+  return { ok: true, itens: (data as ConversationOverview[]) ?? [] };
 }

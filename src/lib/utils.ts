@@ -67,20 +67,11 @@ export function waIdFromWamid(wamid?: string | null): string | null {
   }
 }
 
-/**
- * Extrai o wa_id de QUALQUER external_id de mensagem recebida — Meta
- * (`wamid.<base64>`) OU uazapi (`<telefone>:<idDaMensagem>`, em texto puro).
- *
- * Sem isso, `waIdFromWamid` sozinho só reconhecia o formato da Meta: nos
- * canais uazapi (Firmino Alves, Nova Canaã, Rio do Meio, Ibicuí 2, Iguaí 2) a
- * correção do número real nunca era acionada, porque a busca filtrava só por
- * "wamid.%" (caso TATIANE LICITAÇÕES, protocolo 202609020242, 04/09: cadastro
- * com DDD e dígitos totalmente diferentes do número real que ela usa).
- */
-export function waIdFromExternalId(externalId?: string | null): string | null {
-  if (!externalId) return null;
-  const viaWamid = waIdFromWamid(externalId);
-  if (viaWamid) return viaWamid;
-  const uazapiPhone = externalId.split(":")[0]?.replace(/\D/g, "");
-  return uazapiPhone && /^[0-9]{10,15}$/.test(uazapiPhone) ? uazapiPhone : null;
-}
+// NÃO existe um "waIdFromExternalId" genérico — e de propósito. O prefixo do
+// external_id do uazapi ("<numero>:<id>") é o número DA PRÓPRIA LINHA (owner
+// da instância), não o do cliente; tratá-lo como se fosse equivalente ao
+// wamid da Meta (que SIM carrega o número do outro lado) mandou mensagem de
+// atendente pro número da própria linha em todos os canais uazapi por ~3h em
+// 04/09 (removido em caráter de urgência — ver waRecipient() em
+// atendimento/actions.ts). Se precisar do número real de um contato uazapi,
+// use phoneVariant() a partir do CADASTRO, nunca do external_id.

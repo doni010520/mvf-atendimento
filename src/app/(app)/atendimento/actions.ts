@@ -8,7 +8,7 @@ import { toMp3 } from "@/lib/whatsapp/audio-transcode";
 import { getMessages, getConversations } from "@/lib/data/conversations";
 import { logEvent } from "@/lib/log";
 import type { Channel, ContentType, InternalMention } from "@/lib/types";
-import { canonicalPhone, waIdFromExternalId } from "@/lib/utils";
+import { canonicalPhone, waIdFromWamid } from "@/lib/utils";
 import { notifyMention } from "@/lib/push/send";
 
 const isPreview = () => !process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -1048,7 +1048,19 @@ async function waRecipient(
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  const waId = waIdFromExternalId(last?.external_id);
+  // SÓ o formato da Meta (wamid.*) — CORREÇÃO DE REGRESSÃO GRAVE (04/09): o
+  // external_id do uazapi é "<numero>:<id>", mas esse "<numero>" é o número
+  // DA PRÓPRIA LINHA (o "owner" da instância uazapi), NUNCA o do cliente —
+  // confirmado direto na API deles (instance/status) para NOVA CANAÃ e
+  // FIRMINO ALVES. waIdFromExternalId() tratava as duas formas como
+  // equivalentes; a v2.41.12 tirou a trava de DDD que, por coincidência,
+  // blindava esse engano — e desde então TODA mensagem de atendente nos
+  // canais uazapi ia pro número da própria linha, não pro cliente (achado:
+  // Micaely, canal NOVA CANAÃ, "minhas mensagens não estão indo desde
+  // 10:30" — bate com o horário do deploy, 10:14). Pro uazapi, o retry do
+  // nono dígito já é tratado dentro de uazapi.ts (sendText/sendMedia), a
+  // partir do CADASTRO — não precisa e não pode vir daqui.
+  const waId = waIdFromWamid(last?.external_id);
   return waId ?? fallback;
 }
 
