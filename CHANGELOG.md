@@ -3,6 +3,22 @@
 Versões do MVF Chat. A versão no ar fica em `GET /api/version` e no topo da tela.
 A imagem é publicada com tag de versão (`:vX.Y.Z`) e do commit (`:<sha>`).
 
+## v2.41.19 — IA não fala de dívida sem o cliente perguntar
+- **Incidente Larissa de Jesus da Silva, protocolo 202609040193, 04/09:**
+  cliente disse só "Boa tarde" e "Sim" (confirmando que é cliente), nunca disse
+  o motivo do contato. A IA, ao ver a conta suspensa com fatura vencida, foi
+  direto para "Você tem uma fatura vencida... Quer que eu envie o boleto?" —
+  sem perguntar o que ela queria.
+- **Causa:** efeito colateral da v2.41.15 (que tirou o "Como posso ajudar?"
+  genérico). A regra dizia para só perguntar quando a intenção não estivesse
+  clara, mas a IA passou a tratar "conta com débito" como se already fosse a
+  intenção — sem o cliente ter dito nada. Decisão de produto confirmada com o
+  dono: correto é sempre perguntar primeiro, mesmo com conta suspensa —
+  informar dívida sem o cliente ter perguntado é invasivo.
+- **Correção:** a regra agora deixa explícito — cadastro com débito ou
+  suspenso NÃO conta como "intenção clara". A IA só fala de fatura vencida ou
+  valor devido depois que o cliente disser que é sobre isso.
+
 ## v2.41.18 — comprovante processado sempre transfere ao financeiro
 - **Incidente Rafael Arruda, protocolo 202609040151, 04/09:** a IA leu o
   comprovante, conferiu e liberou o acesso ("Já liberei seu acesso! ✅"), mas
