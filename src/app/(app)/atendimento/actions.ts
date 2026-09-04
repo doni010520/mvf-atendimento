@@ -8,7 +8,7 @@ import { toMp3 } from "@/lib/whatsapp/audio-transcode";
 import { getMessages, getConversations } from "@/lib/data/conversations";
 import { logEvent } from "@/lib/log";
 import type { Channel, ContentType, InternalMention } from "@/lib/types";
-import { canonicalPhone, waIdFromWamid } from "@/lib/utils";
+import { canonicalPhone, waIdFromExternalId } from "@/lib/utils";
 import { notifyMention } from "@/lib/push/send";
 
 const isPreview = () => !process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -1011,16 +1011,21 @@ function recipientOf(conv: { contact_phone: string; is_group?: boolean; contact_
 
 /**
  * Destinatário REAL: usa o wa_id que o próprio WhatsApp confirmou na última
- * mensagem recebida, em vez do telefone do cadastro.
+ * mensagem RECEBIDA nesta conversa, em vez do telefone do cadastro.
  *
  * Por quê: canonicalPhone() sempre adiciona o nono dígito ao gravar o contato,
- * mas 93% dos wa_id da região vêm SEM o 9. A Meta tolera o número com o 9 a
- * mais quase sempre — e no resto devolve "131026 Message Undeliverable": a
- * resposta do atendente não chega e ninguém entende por quê (incidente
- * Marianna Gama, 02/09: o bot entregava e a atendente não).
+ * mas boa parte dos wa_id da região vêm SEM o 9 — a Meta às vezes recusa com
+ * "131026 Message Undeliverable" e a resposta do atendente some sem
+ * explicação (incidente Marianna Gama, 02/09: o bot entregava e a atendente
+ * não). Em alguns casos o cadastro está errado de forma mais grave — DDD e
+ * dígitos totalmente diferentes do número real (incidente TATIANE LICITAÇÕES,
+ * 04/09, canal uazapi Firmino Alves) — provavelmente a extração do contato no
+ * webhook pegou um identificador privado (@lid) em vez do telefone.
  *
- * Só troca quando é o MESMO número (DDD + os 8 últimos dígitos iguais); em
- * qualquer outro caso mantém o cadastro.
+ * Confiamos em QUALQUER wa_id extraído da última mensagem recebida NESTA
+ * conversa — é o sinal mais forte possível: o cliente acabou de escrever dali.
+ * Antes disso só reconhecíamos o formato `wamid.*` da Meta; nos canais uazapi
+ * (`<telefone>:<id>`) a busca nunca encontrava nada e a correção nunca rodava.
  */
 async function waRecipient(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -1034,15 +1039,12 @@ async function waRecipient(
     .select("external_id")
     .eq("conversation_id", conversationId)
     .eq("direction", "in")
-    .like("external_id", "wamid.%")
+    .not("external_id", "is", null)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  const waId = waIdFromWamid(last?.external_id);
-  if (!waId) return fallback;
-  const cad = (conv.contact_phone ?? "").replace(/\D/g, "");
-  const mesmoNumero = waId.slice(-8) === cad.slice(-8) && waId.slice(0, 4) === cad.slice(0, 4);
-  return mesmoNumero ? waId : fallback;
+  const waId = waIdFromExternalId(last?.external_id);
+  return waId ?? fallback;
 }
 
 async function recipientFor(supabase: Awaited<ReturnType<typeof createClient>>, conversationId: string) {

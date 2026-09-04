@@ -3,6 +3,26 @@
 Versões do MVF Chat. A versão no ar fica em `GET /api/version` e no topo da tela.
 A imagem é publicada com tag de versão (`:vX.Y.Z`) e do commit (`:<sha>`).
 
+## v2.41.12 — número real da conversa, agora também no uazapi
+- **A correção do "número real" de ontem só funcionava na API Oficial.** Ela
+  buscava a última mensagem recebida filtrando por `external_id like wamid.%`
+  — formato exclusivo da Meta. Nos canais uazapi (FIRMINO ALVES, NOVA CANAÃ,
+  RIO DO MEIO, IBICUI 2, IGUAI 2) o formato é `<telefone>:<id>`; a busca nunca
+  encontrava nada e a correção nunca chegava a rodar nesses canais.
+- **Incidente TATIANE LICITAÇÕES** (protocolo 202609020242, canal Firmino
+  Alves): não era o nono dígito — o cadastro tinha DDD e dígitos totalmente
+  diferentes do número real dela (provável extração de um identificador
+  privado do WhatsApp — @lid — no lugar do telefone, na criação do contato).
+  Toda mensagem que ela mandou, sem exceção, veio de um número diferente do
+  cadastrado.
+- Agora `waRecipient` reconhece os dois formatos e confia em QUALQUER wa_id
+  confirmado pela última mensagem recebida NESTA conversa — não só quando bate
+  com o DDD do cadastro. A mensagem do cliente já é a prova de qual é o número
+  certo.
+- Cobre os 9 pontos de envio de uma vez (texto, template, mídia, localização,
+  contato, PIX manual, boleto, contrato) e destrava, de saída, todos os canais
+  uazapi que a correção anterior nunca alcançou.
+
 ## v2.41.11 — "não entregue" agora diz o motivo
 - A Meta e o uazapi já mandavam o motivo real da falha (número inexistente,
   janela de 24h, limite de mensagens...), mas o balão sempre mostrava o mesmo
