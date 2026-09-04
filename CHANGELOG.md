@@ -3,6 +3,23 @@
 Versões do MVF Chat. A versão no ar fica em `GET /api/version` e no topo da tela.
 A imagem é publicada com tag de versão (`:vX.Y.Z`) e do commit (`:<sha>`).
 
+## v2.41.13 — corrida do atendente x IA em conversa nova
+- **Incidente Alexandre Morsan (04/09, protocolo 202609040053):** cliente
+  escreveu, Alexandre assumiu dentro dos 8s de debounce, mas a IA respondeu do
+  mesmo jeito — e, ao processar o turno, reescreveu o status da conversa de
+  volta para "bot", apagando silenciosamente a atribuição. Minutos depois a
+  rotina de inatividade viu status "bot" e devolveu a conversa pra fila
+  (mensagem de horário comercial no meio do atendimento), obrigando o
+  atendente a assumir de novo — as DUAS atribuições vistas na tela.
+- **Causa:** a checagem "um humano já assumiu?" tinha uma exceção pra conversa
+  nova (`!isNew`) que pulava a verificação justamente na janela onde a corrida
+  acontece. Numa conversa nova legítima o status já nasce "bot", então a
+  exceção nunca foi necessária — só abria o furo. Removida nos dois pontos de
+  recheque (fim do debounce e dentro do lock por conversa).
+- **Reforço:** a rotina de inatividade agora também exige `assigned_user_id`
+  vazio antes de "resgatar" uma conversa "bot" — mesmo que outro bug deixe
+  esse estado inconsistente de novo, ela não atropela quem já está atendendo.
+
 ## v2.41.12 — número real da conversa, agora também no uazapi
 - **A correção do "número real" de ontem só funcionava na API Oficial.** Ela
   buscava a última mensagem recebida filtrando por `external_id like wamid.%`

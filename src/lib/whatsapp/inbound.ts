@@ -521,7 +521,7 @@ export async function persistInbound(messages: InboundMessage[]) {
           .select("status, bot_node_id")
           .eq("id", conversationId)
           .maybeSingle();
-        if (fresh && fresh.status !== "bot" && !isNew) continue;
+        if (fresh && fresh.status !== "bot") continue;
         botNode = fresh?.bot_node_id ?? convBotNode;
       }
       // Seção crítica serializada por conversa (ver runExclusive): garante que
@@ -533,7 +533,7 @@ export async function persistInbound(messages: InboundMessage[]) {
           .select("status, bot_node_id")
           .eq("id", conversationId)
           .maybeSingle();
-        if (cur && cur.status !== "bot" && !isNew) return; // humano assumiu
+        if (cur && cur.status !== "bot") return; // humano assumiu
 
         // Guard anti-duplicação: se o BOT já respondeu depois desta mensagem,
         // outro turno da rajada já a atendeu — não responde de novo (é o que

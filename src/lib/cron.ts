@@ -93,11 +93,18 @@ export async function runCronJobs(): Promise<{ closed: number; warned: number; t
 
       // ENCAMINHAR: ocioso há >= closeMin no bot → avisa e passa para a fila humana
       // (IA desligada, sem encerrar). Um atendente assume no expediente.
+      // `assigned_user_id is null`: reforço de segurança — uma conversa com
+      // atendente responsável NUNCA deveria estar "bot", mas se algum bug
+      // (ex.: a corrida corrigida em 04/09 — cliente escreve, atendente assume
+      // dentro do debounce, IA responde do mesmo jeito e reseta o status)
+      // deixar essa inconsistência, esta rotina não vai "resgatar" e mandar a
+      // mensagem de encerramento por cima de um atendimento que já tem dono.
       const { data: toForward } = await db
         .from("conversations")
         .select(sel)
         .eq("organization_id", org.id)
         .eq("status", "bot")
+        .is("assigned_user_id", null)
         .lt("last_message_at", closeThreshold)
         .limit(200);
       for (const c of (toForward ?? []) as Row[]) {
