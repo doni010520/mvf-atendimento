@@ -38,7 +38,16 @@ export class MetaProvider implements ChannelProvider {
     this.orgId = channel.organization_id;
   }
 
-  private async graph(path: string, body: unknown) {
+  /**
+   * `131000 "Something went wrong"` é erro TRANSITÓRIO do lado da Meta (HTTP
+   * 500 genérico, não é problema com a mensagem/número) — confirmado: um
+   * reenvio manual segundos depois, com o texto idêntico, sempre entregou
+   * (caso Alexandre Morsan → Geovana Nascimento, 04/09). Sem retry, o
+   * atendente via "não entregue" para algo que um segundo envio já resolvia
+   * sozinho.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private async graph(path: string, body: unknown, _retried = false): Promise<any> {
     const res = await fetch(`${GRAPH}/${path}`, {
       method: "POST",
       headers: {
@@ -47,7 +56,14 @@ export class MetaProvider implements ChannelProvider {
       },
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error(`Meta ${path} -> ${res.status} ${await res.text()}`);
+    if (!res.ok) {
+      const text = await res.text();
+      if (!_retried && /"code"\s*:\s*131000/.test(text)) {
+        await new Promise((r) => setTimeout(r, 1200));
+        return this.graph(path, body, true);
+      }
+      throw new Error(`Meta ${path} -> ${res.status} ${text}`);
+    }
     return res.json();
   }
 

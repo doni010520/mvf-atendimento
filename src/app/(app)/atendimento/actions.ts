@@ -991,6 +991,11 @@ function motivoFalhaEnvio(raw: string): string {
     return "Fora da janela de 24h: neste canal oficial, só é possível enviar um modelo (template) aprovado.";
   if (/not on whatsapp|isinwhatsapp["\s:]*false|não está no whatsapp|no lid found/i.test(raw))
     return "Este número não foi encontrado no WhatsApp. Confirme se o número está correto antes de tentar de novo.";
+  // 131000 já tenta de novo sozinho dentro do client da Meta (ver meta.ts); só
+  // chega aqui se o retry TAMBÉM falhou — erro real do lado da Meta, vale
+  // reenviar na mão (caso Alexandre Morsan → Geovana Nascimento, 04/09).
+  if (/131000|something went wrong/i.test(raw))
+    return "Erro momentâneo do WhatsApp (o sistema já tentou de novo automaticamente) — tente reenviar.";
   return "Não foi possível entregar a mensagem.";
 }
 

@@ -3,6 +3,17 @@
 Versões do MVF Chat. A versão no ar fica em `GET /api/version` e no topo da tela.
 A imagem é publicada com tag de versão (`:vX.Y.Z`) e do commit (`:<sha>`).
 
+## v2.41.16 — retry automático no erro genérico da Meta
+- **Incidente Alexandre Morsan → Geovana Nascimento, 04/09:** mensagem falhou
+  com `[131000] Something went wrong` (HTTP 500 genérico do lado da Meta, sem
+  relação com o número ou o conteúdo) e o balão mostrava só "não foi possível
+  entregar a mensagem". O reenvio manual, segundos depois, com o texto
+  idêntico, entregou — prova de que era transitório.
+- O client da Meta agora tenta de novo sozinho (uma vez, após 1,2s) quando
+  recebe 131000, no ponto único que despacha texto/template/mídia — cobre os
+  três de uma vez. Se mesmo assim falhar, o balão explica: "erro momentâneo do
+  WhatsApp (o sistema já tentou de novo automaticamente) — tente reenviar".
+
 ## v2.41.15 — IA não sabia que dia era hoje
 - **Incidente protocolo 202609040059, 04/09:** a IA disse "você tem faturas em
   aberto, a mais recente venceu em 05/09/2026" — no dia 04/09, ou seja, um dia

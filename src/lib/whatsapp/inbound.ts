@@ -618,6 +618,8 @@ function motivoFalhaMeta(errorCode?: number, errorTitle?: string): string {
       return "Não foi possível enviar a mídia (arquivo não suportado ou inacessível).";
     case 470:
       return "Fora da janela de resposta gratuita — precisa de um modelo aprovado.";
+    case 131000:
+      return "Erro momentâneo do WhatsApp (o sistema já tentou de novo automaticamente) — tente reenviar.";
     default:
       return errorTitle ? `A Meta recusou: ${errorTitle}${errorCode ? ` (código ${errorCode})` : ""}` : "A Meta recusou a entrega.";
   }
