@@ -3,6 +3,23 @@
 Versões do MVF Chat. A versão no ar fica em `GET /api/version` e no topo da tela.
 A imagem é publicada com tag de versão (`:vX.Y.Z`) e do commit (`:<sha>`).
 
+## v2.41.18 — comprovante processado sempre transfere ao financeiro
+- **Incidente Rafael Arruda, protocolo 202609040151, 04/09:** a IA leu o
+  comprovante, conferiu e liberou o acesso ("Já liberei seu acesso! ✅"), mas
+  não chamou `transferir_para_humano` na sequência — a conversa ficou em modo
+  "bot". Quando o cliente escreveu de novo, o robô reiniciou a saudação do
+  zero ("Bom dia! Seja bem-vindo(a)..."); só a rotina de inatividade, minutos
+  depois, acabou encaminhando pra fila — sem o motivo/contexto do comprovante,
+  a atendente teve que reconstruir a situação sozinha.
+- **Causa:** o prompt manda "SEMPRE transfira ao financeiro" depois do
+  comprovante, mas isso dependia do modelo lembrar de chamar uma ferramenta
+  SEPARADA numa etapa seguinte do mesmo turno — falha de instrução, não de
+  lógica; auditoria do dia achou 1 caso em 29 comprovantes processados.
+- **Correção:** rede de segurança em código. Processar comprovante sempre
+  encerra o turno transferido ao financeiro (com o resultado da conferência
+  no motivo), mesmo que o modelo não chame a ferramenta depois — a garantia
+  não depende mais só do modelo obedecer o prompt.
+
 ## v2.41.17 — HOTFIX GRAVE: mensagem indo pro número da própria linha (uazapi)
 - **Regressão da v2.41.12, ~3h no ar (10:14-13:2x BRT, 04/09):** em TODOS os
   canais uazapi (Nova Canaã, Rio do Meio, Firmino Alves, Ibicuí 2, Iguaí 2),

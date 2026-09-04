@@ -998,6 +998,8 @@ export async function runAiTurn(ctx: AiTurnContext): Promise<AiTurnResult> {
 
   let decision: AiDecision = "wait";
   let transfer: AiTurnResult["transfer"];
+  // Rede de segurança pro comprovante — ver uso mais abaixo, perto do return.
+  let comprovanteResumo: string | undefined;
   let summary: string | undefined;
 
   for (let step = 0; step < 6; step++) {
@@ -1080,6 +1082,17 @@ export async function runAiTurn(ctx: AiTurnContext): Promise<AiTurnResult> {
             is_internal: true,
             status: "sent",
           }).then(() => {}, () => {});
+          // Resumo pra rede de segurança (ver perto do return): "SEMPRE
+          // transfira" (regra 5.6 do prompt) depende do modelo lembrar de
+          // chamar transferir_para_humano numa etapa SEGUINTE do laço — e ele
+          // às vezes não chama (caso Rafael Arruda, protocolo 202609040151,
+          // 04/09: liberou o acesso, respondeu "já liberei", mas não
+          // transferiu — a conversa ficou em modo bot e reiniciou a saudação
+          // na mensagem seguinte do cliente). Guarda o motivo aqui; se o
+          // modelo esquecer, o código força a transferência no final do turno.
+          comprovanteResumo =
+            `comprovante R$ ${f("valor")} — destino ${flag(args.destino_confere, "confere", "NÃO confere")} — valor ${flag(args.valor_confere, "bate", "NÃO bate")}` +
+            (args.ja_baixado === true ? " — pagamento já baixado automaticamente" : "");
         }
         const result = await executeTool(tc.function.name, args, sgpList, defaultSgpId, sgpMemo);
         // CRM automático: cliente validado pelo bot → cadastro do contato
@@ -1130,6 +1143,16 @@ export async function runAiTurn(ctx: AiTurnContext): Promise<AiTurnResult> {
       if (!sentAudio) await ctx.sendToCustomer(finalText);
     }
     break;
+  }
+
+  // Rede de segurança: comprovante processado SEMPRE termina o turno
+  // transferido ao financeiro, mesmo se o modelo não chamou
+  // transferir_para_humano depois. Sem isso a conversa fica em modo "bot" —
+  // silenciosa até a rotina de inatividade (minutos depois, sem o motivo) ou,
+  // pior, reinicia a saudação do zero na próxima mensagem do cliente.
+  if (comprovanteResumo && decision !== "transfer" && decision !== "done") {
+    decision = "transfer";
+    transfer = { setor: "financeiro", motivo: comprovanteResumo };
   }
 
   return { decision, transfer, summary };
